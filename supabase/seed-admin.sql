@@ -1,0 +1,33 @@
+-- ============================================
+-- SEED ADMIN USER
+-- ============================================
+-- Run this ONCE in Supabase SQL Editor after deploying the schema.
+-- Replace the email and password below with your own credentials.
+--
+-- IMPORTANT: After running this, log in via /admin/login with the
+-- email and password you set here. Then change your password from
+-- Supabase Dashboard > Authentication > Users if needed.
+-- ============================================
+
+-- Option 1: Create user via Supabase Dashboard
+-- Go to: Supabase Dashboard > Authentication > Users > Add User
+-- Enter your email and a strong password.
+-- This is the RECOMMENDED approach.
+
+-- Option 2: Use the SQL below (if you prefer SQL)
+-- Note: This uses Supabase's auth.users table directly.
+-- The password must be hashed - you cannot insert plain text.
+-- Instead, use the Supabase Auth Admin API:
+--
+-- curl -X POST 'https://YOUR_PROJECT_REF.supabase.co/auth/v1/admin/users' \
+--   -H "apikey: YOUR_SERVICE_ROLE_KEY" \
+--   -H "Authorization: Bearer YOUR_SERVICE_ROLE_KEY" \
+--   -H "Content-Type: application/json" \
+--   -d '{
+--     "email": "admin@koetik.studio.my.id",
+--     "password": "your-secure-password-here",
+--     "email_confirm": true
+--   }'
+--
+-- Replace YOUR_PROJECT_REF and YOUR_SERVICE_ROLE_KEY with your actual values.
+-- The email_confirm: true skips email verification.

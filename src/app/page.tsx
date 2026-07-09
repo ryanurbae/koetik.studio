@@ -197,7 +197,7 @@ export default function LandingPage() {
   }
 
   return (
-    <main className="relative h-dvh overflow-hidden bg-[#0a0a0a] text-white font-sans select-none flex flex-col justify-between">
+    <main className="relative h-dvh overflow-hidden bg-[#0a0a0a] text-white font-sans select-none flex flex-col justify-between overscroll-none touch-none">
       {/* ══════════ CAROUSEL ══════════ */}
       <AnimatePresence mode="wait">
         {slides.length > 0 ? (

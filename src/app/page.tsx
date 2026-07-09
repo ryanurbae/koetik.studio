@@ -39,6 +39,39 @@ function getWidth(offset: number): number {
 const EASE: [number, number, number, number] = [0.76, 0, 0.24, 1];
 const DURATION = 0.75;
 
+function CarouselImage({ src, alt, isCenter }: { src: string; alt: string; isCenter: boolean }) {
+  const [loaded, setLoaded] = useState(false);
+  const imgRef = useRef<HTMLImageElement>(null);
+  
+  useEffect(() => {
+    if (imgRef.current?.complete) {
+      setLoaded(true);
+    }
+  }, [src]);
+
+  return (
+    <motion.img
+      ref={imgRef}
+      src={src}
+      alt={alt}
+      onLoad={() => setLoaded(true)}
+      className="h-full w-full object-cover"
+      initial={{ opacity: 0 }}
+      animate={{
+        opacity: loaded ? 1 : 0,
+        filter: isCenter
+          ? "brightness(1) saturate(1)"
+          : "brightness(0.1) saturate(0.15)",
+      }}
+      transition={{ 
+        opacity: { duration: 1.5, ease: "easeInOut" },
+        filter: { duration: 0.8, ease: "easeInOut" }
+      }}
+      draggable={false}
+    />
+  );
+}
+
 /* ─── Main Page ─── */
 export default function LandingPage() {
   const [slides, setSlides] = useState<Slide[]>([]);
@@ -160,7 +193,7 @@ export default function LandingPage() {
             initial={{ opacity: 0, y: 40 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -40 }}
-            transition={{ duration: 0.8, ease: [0.25, 0.1, 0.25, 1] }}
+            transition={{ duration: 1.2, ease: [0.25, 0.1, 0.25, 1] }}
           >
             <div className="carousel-track w-full h-full relative">
               {items.map(({ vi, off, si }) => {
@@ -198,18 +231,10 @@ export default function LandingPage() {
                       }}
                       style={{ pointerEvents: isCenter ? "auto" : "none" }}
                     >
-                      <motion.img
+                      <CarouselImage 
                         src={slides[si].image}
                         alt={slides[si].client}
-                        className="h-full w-full object-cover"
-                        initial={false}
-                        animate={{
-                          filter: isCenter
-                            ? "brightness(1) saturate(1)"
-                            : "brightness(0.1) saturate(0.15)",
-                        }}
-                        transition={{ duration: 0.5, ease: "easeInOut" }}
-                        draggable={false}
+                        isCenter={isCenter}
                       />
                     </Link>
                   </motion.div>

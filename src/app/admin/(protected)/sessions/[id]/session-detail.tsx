@@ -12,7 +12,9 @@ import {
   generateSelectionLink,
   publishGallery,
   updatePortfolioVisibility,
+  uploadGalleryThumbnail,
 } from "../../actions";
+import { CropModal } from "@/components/crop-modal";
 
 type Photo = {
   id: string;
@@ -104,6 +106,16 @@ export default function SessionDetail({
   );
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
+  const [photoToDelete, setPhotoToDelete] = useState<{ id: string; type: "raw" | "edited" } | null>(null);
+  const [cropImageUrl, setCropImageUrl] = useState<string | null>(null);
+
+  const handleCropSave = async (blob: Blob) => {
+    const formData = new FormData();
+    formData.append("file", blob, "thumbnail.jpg");
+    await uploadGalleryThumbnail(session.id, formData);
+    router.refresh();
+  };
 
   const selectedPhotoIds = new Set(selections.map((s) => s.raw_photo_id));
 
@@ -355,18 +367,13 @@ export default function SessionDetail({
                     </div>
                   )}
                   {/* Delete button on hover */}
-                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                  <div className={`absolute inset-0 bg-black/50 transition-opacity flex items-center justify-center ${deletingIds.has(photo.id) ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
                     <button
-                      onClick={() => {
-                        if (confirm("Hapus foto ini?")) {
-                          deleteRawPhoto(photo.id, session.id).then(() =>
-                            router.refresh()
-                          );
-                        }
-                      }}
-                      className="px-3 py-1.5 rounded-full bg-red-500/80 text-[11px] font-medium text-white"
+                      onClick={() => setPhotoToDelete({ id: photo.id, type: "raw" })}
+                      disabled={deletingIds.has(photo.id)}
+                      className="px-3 py-1.5 rounded-full bg-red-500/80 text-[11px] font-medium text-white disabled:opacity-50"
                     >
-                      Delete
+                      {deletingIds.has(photo.id) ? "Deleting..." : "Delete"}
                     </button>
                   </div>
                   <p className="absolute bottom-0 left-0 right-0 p-1.5 bg-black/60 text-[9px] text-white/50 truncate">
@@ -457,7 +464,7 @@ export default function SessionDetail({
                         onClick={() => {
                           const siteUrl =
                             process.env.NEXT_PUBLIC_SITE_URL ||
-                            "http://localhost:3000";
+                            "https://koetik.studio.my.id";
                           copyToClipboard(`${siteUrl}/select/${session.id}`);
                         }}
                         className="text-xs text-white/40 hover:text-white transition-colors underline"
@@ -569,7 +576,7 @@ export default function SessionDetail({
                       href={`https://wa.me/${
                         session.client_whatsapp
                           ? (() => {
-                              let num = session.client_whatsapp.replace(/[^0-9]/g, "");
+                              const num = session.client_whatsapp.replace(/[^0-9]/g, "");
                               return num.startsWith("0") ? "62" + num.slice(1) : num;
                             })()
                           : ""
@@ -648,18 +655,24 @@ export default function SessionDetail({
                     className="w-full h-full object-cover"
                     loading="lazy"
                   />
-                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                  {session.gallery_cover_photo_id === photo.id && (
+                    <div className="absolute top-2 left-2 px-2 py-1 bg-emerald-500 rounded text-[9px] font-bold text-white uppercase tracking-wider">
+                      Cover
+                    </div>
+                  )}
+                  <div className={`absolute inset-0 bg-black/50 transition-opacity flex flex-col items-center justify-center gap-2 ${deletingIds.has(photo.id) ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
                     <button
-                      onClick={() => {
-                        if (confirm("Hapus foto ini?")) {
-                          deleteEditedPhoto(photo.id, session.id).then(() =>
-                            router.refresh()
-                          );
-                        }
-                      }}
-                      className="px-3 py-1.5 rounded-full bg-red-500/80 text-[11px] font-medium text-white"
+                      onClick={() => setCropImageUrl(photo.url)}
+                      className="px-3 py-1.5 rounded-full bg-white/20 hover:bg-white/30 text-[11px] font-medium text-white transition-colors"
                     >
-                      Delete
+                      Set Thumbnail
+                    </button>
+                    <button
+                      onClick={() => setPhotoToDelete({ id: photo.id, type: "edited" })}
+                      disabled={deletingIds.has(photo.id)}
+                      className="px-3 py-1.5 rounded-full bg-red-500/80 text-[11px] font-medium text-white disabled:opacity-50"
+                    >
+                      {deletingIds.has(photo.id) ? "Deleting..." : "Delete"}
                     </button>
                   </div>
                   <p className="absolute bottom-0 left-0 right-0 p-1.5 bg-black/60 text-[9px] text-white/50 truncate">
@@ -874,6 +887,56 @@ export default function SessionDetail({
                   disabled={actionLoading}
                   className="flex-1 py-3 rounded-xl bg-red-500 text-white text-sm font-semibold disabled:opacity-50"
                 >
+                  {actionLoading ? "Menghapus..." : "Hapus"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete photo confirmation */}
+      {photoToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => setPhotoToDelete(null)}
+          />
+          <div className="relative w-full max-w-sm p-1 rounded-2xl bg-white/[0.04] ring-1 ring-white/[0.1] z-10">
+            <div className="bg-[#0a0a0a] rounded-[calc(1rem-4px)] p-6 text-center">
+              <h3 className="text-lg font-heading font-semibold mb-2">
+                Hapus Foto?
+              </h3>
+              <p className="text-sm text-white/40 mb-6">
+                Foto ini akan dihapus permanen dari sistem.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setPhotoToDelete(null)}
+                  className="flex-1 py-3 rounded-xl bg-white/[0.06] text-sm font-medium text-white/60"
+                >
+                  Batal
+                </button>
+                <button
+                  onClick={() => {
+                    const { id, type } = photoToDelete;
+                    setPhotoToDelete(null);
+                    setDeletingIds(prev => new Set(prev).add(id));
+                    
+                    const deleteFn = type === "raw" ? deleteRawPhoto : deleteEditedPhoto;
+                    deleteFn(id, session.id)
+                      .then(() => router.refresh())
+                      .catch((err) => {
+                        console.error(err);
+                        setDeletingIds(prev => {
+                          const next = new Set(prev);
+                          next.delete(id);
+                          return next;
+                        });
+                      });
+                  }}
+                  className="flex-1 py-3 rounded-xl bg-red-500 text-white text-sm font-semibold"
+                >
                   Hapus
                 </button>
               </div>
@@ -881,6 +944,14 @@ export default function SessionDetail({
           </div>
         </div>
       )}
+
+      {/* Crop Modal */}
+      <CropModal
+        open={!!cropImageUrl}
+        onClose={() => setCropImageUrl(null)}
+        imageUrl={cropImageUrl || ""}
+        onCropSave={handleCropSave}
+      />
     </>
   );
 }

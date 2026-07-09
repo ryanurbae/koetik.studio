@@ -50,6 +50,7 @@ export default function GalleryView({
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState("");
+  const [singleDownloading, setSingleDownloading] = useState(false);
 
   const openLightbox = (index: number) => setLightboxIndex(index);
   const closeLightbox = () => setLightboxIndex(null);
@@ -112,6 +113,25 @@ export default function GalleryView({
     } finally {
       setDownloading(false);
       setDownloadProgress("");
+    }
+  };
+
+  const handleSingleDownload = async (url: string, filename: string) => {
+    setSingleDownloading(true);
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(blobUrl);
+    } catch (err) {
+      console.error("Download failed:", err);
+      alert("Download gagal. Coba lagi.");
+    } finally {
+      setSingleDownloading(false);
     }
   };
 
@@ -279,14 +299,16 @@ export default function GalleryView({
           </div>
 
           {/* Download button */}
-          <a
-            href={photos[lightboxIndex].url}
-            download={photos[lightboxIndex].filename}
-            onClick={(e) => e.stopPropagation()}
-            className="absolute bottom-4 right-4 px-4 py-2 rounded-lg bg-white/10 text-xs text-white/60 hover:bg-white/20 hover:text-white transition-all"
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              handleSingleDownload(photos[lightboxIndex].url, photos[lightboxIndex].filename);
+            }}
+            disabled={singleDownloading}
+            className="absolute bottom-4 right-4 px-4 py-2 rounded-lg bg-white/10 text-xs text-white/60 hover:bg-white/20 hover:text-white transition-all disabled:opacity-50"
           >
-            Download
-          </a>
+            {singleDownloading ? "Downloading..." : "Download"}
+          </button>
         </div>
       )}
     </motion.div>

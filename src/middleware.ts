@@ -12,7 +12,10 @@ export async function middleware(request: NextRequest) {
     "localhost:3000",
     "localhost",
   ];
-  const isMainDomain = mainDomains.some((d) => hostname === d || hostname.startsWith(`${d}:`)) || hostname.includes("ngrok");
+  const isMainDomain = 
+    mainDomains.some((d) => hostname === d || hostname.startsWith(`${d}:`)) || 
+    hostname.includes("ngrok") ||
+    hostname.endsWith(".vercel.app");
 
   if (!isMainDomain && hostname.includes(".")) {
     const slug = hostname.split(".")[0];

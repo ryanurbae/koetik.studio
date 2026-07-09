@@ -152,77 +152,88 @@ export default function LandingPage() {
   return (
     <main className="relative h-dvh overflow-hidden bg-[#0a0a0a] text-white font-sans select-none flex flex-col justify-between">
       {/* ══════════ CAROUSEL ══════════ */}
-      {slides.length > 0 ? (
-        <motion.div
-          className="absolute inset-0 flex items-center"
-          initial={{ opacity: 0, y: 40 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, ease: [0.25, 0.1, 0.25, 1] }}
-        >
-          <div className="carousel-track w-full h-full relative">
-            {items.map(({ vi, off, si }) => {
-              const isCenter = off === 0;
-              const inView = Math.abs(off) <= PEEK;
+      <AnimatePresence mode="wait">
+        {slides.length > 0 ? (
+          <motion.div
+            key="carousel"
+            className="absolute inset-0 flex items-center"
+            initial={{ opacity: 0, y: 40 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -40 }}
+            transition={{ duration: 0.8, ease: [0.25, 0.1, 0.25, 1] }}
+          >
+            <div className="carousel-track w-full h-full relative">
+              {items.map(({ vi, off, si }) => {
+                const isCenter = off === 0;
+                const inView = Math.abs(off) <= PEEK;
 
-              return (
-                <motion.div
-                  key={vi}
-                  className="absolute top-0 bottom-0 overflow-hidden flex items-center justify-center"
-                  initial={false}
-                  animate={{
-                    left: `${getLeft(off)}vw`,
-                    width: `${getWidth(off)}vw`,
-                    opacity: inView ? 1 : 0,
-                  }}
-                  transition={{
-                    left: { duration: DURATION, ease: EASE },
-                    width: { duration: DURATION, ease: EASE },
-                    opacity: { duration: 0.4, ease: "easeInOut" },
-                  }}
-                  onClick={() => {
-                    if (off < 0) go(-1);
-                    else if (off > 0) go(1);
-                  }}
-                  style={{ cursor: isCenter ? "default" : "pointer" }}
-                >
-                  <Link 
-                    href={`/g/${slides[si].slug}`} 
-                    className="w-full h-full block"
-                    onClick={(e) => {
-                      if (!isCenter) {
-                        e.preventDefault(); // Let the parent's onClick handle carousel rotation
-                      }
+                return (
+                  <motion.div
+                    key={vi}
+                    className="absolute top-0 bottom-0 overflow-hidden flex items-center justify-center"
+                    initial={false}
+                    animate={{
+                      left: `${getLeft(off)}vw`,
+                      width: `${getWidth(off)}vw`,
+                      opacity: inView ? 1 : 0,
                     }}
-                    style={{ pointerEvents: isCenter ? "auto" : "none" }}
+                    transition={{
+                      left: { duration: DURATION, ease: EASE },
+                      width: { duration: DURATION, ease: EASE },
+                      opacity: { duration: 0.4, ease: "easeInOut" },
+                    }}
+                    onClick={() => {
+                      if (off < 0) go(-1);
+                      else if (off > 0) go(1);
+                    }}
+                    style={{ cursor: isCenter ? "default" : "pointer" }}
                   >
-                    <motion.img
-                      src={slides[si].image}
-                      alt={slides[si].client}
-                      className="h-full w-full object-cover"
-                      initial={false}
-                      animate={{
-                        filter: isCenter
-                          ? "brightness(1) saturate(1)"
-                          : "brightness(0.1) saturate(0.15)",
+                    <Link 
+                      href={`/g/${slides[si].slug}`} 
+                      className="w-full h-full block"
+                      onClick={(e) => {
+                        if (!isCenter) {
+                          e.preventDefault(); // Let the parent's onClick handle carousel rotation
+                        }
                       }}
-                      transition={{ duration: 0.5, ease: "easeInOut" }}
-                      draggable={false}
-                    />
-                  </Link>
-                </motion.div>
-              );
-            })}
-          </div>
-        </motion.div>
-      ) : (
-        <div className="absolute inset-0 flex items-center justify-center">
-          {loading ? (
-            <p className="text-white/40 text-sm tracking-widest uppercase">Loading...</p>
-          ) : (
-            <p className="text-white/40 text-sm tracking-widest uppercase">No projects to show</p>
-          )}
-        </div>
-      )}
+                      style={{ pointerEvents: isCenter ? "auto" : "none" }}
+                    >
+                      <motion.img
+                        src={slides[si].image}
+                        alt={slides[si].client}
+                        className="h-full w-full object-cover"
+                        initial={false}
+                        animate={{
+                          filter: isCenter
+                            ? "brightness(1) saturate(1)"
+                            : "brightness(0.1) saturate(0.15)",
+                        }}
+                        transition={{ duration: 0.5, ease: "easeInOut" }}
+                        draggable={false}
+                      />
+                    </Link>
+                  </motion.div>
+                );
+              })}
+            </div>
+          </motion.div>
+        ) : (
+          <motion.div 
+            key="loader"
+            className="absolute inset-0 flex items-center justify-center"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.5 }}
+          >
+            {loading ? (
+              <p className="text-white/40 text-sm tracking-widest uppercase animate-pulse">Loading...</p>
+            ) : (
+              <p className="text-white/40 text-sm tracking-widest uppercase">No projects to show</p>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ══════════ HEADER ══════════ */}
       <header className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 md:px-10 h-16 mix-blend-difference pointer-events-none">

@@ -96,7 +96,21 @@ export default function LandingPage() {
             image: g.coverUrl || "",
             slug: g.slug,
           }));
-          setSlides(fetchedSlides.filter(s => s.image !== ""));
+          const validSlides = fetchedSlides.filter(s => s.image !== "");
+          setSlides(validSlides);
+
+          // Preload images to ensure smooth transition
+          await Promise.all(
+            validSlides.map(
+              (slide) =>
+                new Promise((resolve) => {
+                  const img = new Image();
+                  img.src = slide.image;
+                  img.onload = resolve;
+                  img.onerror = resolve; // Continue even if one image fails
+                })
+            )
+          );
         }
       } catch (err) {
         console.error(err);

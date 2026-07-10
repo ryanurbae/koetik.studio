@@ -100,7 +100,7 @@ export async function POST(
 
     // Generate WA message
     const waNumber = process.env.NEXT_PUBLIC_WA_NUMBER || "6281234567890";
-    const message = `Halo koetik.studio.my.id! 👋\n\nSaya ${session.client_name}, sudah selesai memilih ${selectedPhotoIds.length} foto untuk diedit.\n\nTerima kasih!`;
+    const message = `Halo koetik.studio! 👋\n\nSaya ${session.client_name}, sudah selesai memilih ${selectedPhotoIds.length} foto untuk diedit.\n\nTerima kasih!`;
     const waUrl = `https://wa.me/${waNumber}?text=${encodeURIComponent(message)}`;
 
     return NextResponse.json({

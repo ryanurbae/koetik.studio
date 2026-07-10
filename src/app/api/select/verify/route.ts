@@ -108,7 +108,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error:
-            "Link sudah expired. Hubungi koetik.studio.my.id untuk link baru.",
+            "Link sudah expired. Hubungi koetikstudio.my.id untuk link baru.",
         },
         { status: 410 }
       );

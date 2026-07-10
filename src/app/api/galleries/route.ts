@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function GET() {
@@ -35,21 +35,28 @@ export async function GET() {
     }
 
     const galleries = (sessions || []).map((s) => {
-      const cover =
-        (s.gallery_cover_photo_id &&
-          photosById[s.gallery_cover_photo_id]) ||
-        firstBySession[s.id];
+      // Primary: thumbnail from dedicated bucket with fixed path {sessionId}/cover.jpg
+      const thumbUrl = supabase.storage
+        .from("thumbnails")
+        .getPublicUrl(`${s.id}/cover.jpg`).data.publicUrl;
 
-      const coverUrl = cover
-        ? supabase.storage.from("edited-photos").getPublicUrl(cover.storage_path)
-            .data.publicUrl
+      // Fallback: cover photo or first edited photo
+      const fallbackPhoto =
+        (s.gallery_cover_photo_id && photosById[s.gallery_cover_photo_id]) ||
+        firstBySession[s.id];
+      const fallbackUrl = fallbackPhoto
+        ? supabase.storage
+            .from("edited-photos")
+            .getPublicUrl(fallbackPhoto.storage_path).data.publicUrl
         : null;
 
       return {
         slug: s.gallery_slug,
         title: s.gallery_title || s.client_name,
         description: s.gallery_description,
-        coverUrl,
+        // thumbUrl is always generated (even if file doesn't exist); page.tsx handles fallback on img error
+        coverUrl: thumbUrl,
+        coverFallback: fallbackUrl,
       };
     });
 

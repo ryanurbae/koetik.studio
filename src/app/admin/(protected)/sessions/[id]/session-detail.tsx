@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 import {
   uploadRawPhotos,
   uploadEditedPhotos,
@@ -117,7 +118,61 @@ export default function SessionDetail({
     router.refresh();
   };
 
+  // Real-time: auto-reload when client submits selections
+  useEffect(() => {
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`session-selections-${session.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "selections",
+          filter: `session_id=eq.${session.id}`,
+        },
+        () => {
+          router.refresh();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [session.id, router]);
+
   const selectedPhotoIds = new Set(selections.map((s) => s.raw_photo_id));
+
+  // --- Upload helpers ---
+  const CONCURRENCY = 3;
+
+  const uploadInBatches = async (
+    files: FileList | File[],
+    uploadFn: (sessionId: string, formData: FormData) => Promise<void>
+  ) => {
+    const fileArr = Array.from(files);
+    let uploadedCount = 0;
+
+    for (let i = 0; i < fileArr.length; i += CONCURRENCY) {
+      const batch = fileArr.slice(i, i + CONCURRENCY);
+      await Promise.all(
+        batch.map(async (file) => {
+          const formData = new FormData();
+          formData.append("files", file);
+          try {
+            await uploadFn(session.id, formData);
+            uploadedCount++;
+          } catch (err) {
+            console.error("Gagal upload file:", file.name, err);
+          }
+          setUploadStats({ current: uploadedCount, total: fileArr.length });
+          setUploadProgress(`Mengupload... ${uploadedCount}/${fileArr.length}`);
+        })
+      );
+    }
+    return uploadedCount;
+  };
 
   // --- Upload handlers ---
   const processRawUpload = async (files: FileList | File[]) => {
@@ -126,31 +181,13 @@ export default function SessionDetail({
     setUploadProgress(`Menyiapkan ${files.length} foto...`);
     setUploadStats({ current: 0, total: files.length });
 
-    let uploadedCount = 0;
-
-    for (let i = 0; i < files.length; i++) {
-      const formData = new FormData();
-      formData.append("files", files[i]);
-
-      try {
-        setUploadProgress(`Mengupload foto ${i + 1} dari ${files.length}...`);
-        await uploadRawPhotos(session.id, formData);
-        uploadedCount++;
-        setUploadStats({ current: uploadedCount, total: files.length });
-      } catch (err) {
-        console.error("Gagal upload file:", files[i].name, err);
-      }
-    }
+    const uploadedCount = await uploadInBatches(files, uploadRawPhotos);
 
     setUploadProgress(`Selesai! ${uploadedCount} foto berhasil diupload.`);
     router.refresh();
     setUploading(false);
     if (rawInputRef.current) rawInputRef.current.value = "";
-    
-    setTimeout(() => {
-      setUploadProgress("");
-      setUploadStats(null);
-    }, 3000);
+    setTimeout(() => { setUploadProgress(""); setUploadStats(null); }, 3000);
   };
 
   const handleRawUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -163,31 +200,13 @@ export default function SessionDetail({
     setUploadProgress(`Menyiapkan ${files.length} foto...`);
     setUploadStats({ current: 0, total: files.length });
 
-    let uploadedCount = 0;
-
-    for (let i = 0; i < files.length; i++) {
-      const formData = new FormData();
-      formData.append("files", files[i]);
-
-      try {
-        setUploadProgress(`Mengupload foto ${i + 1} dari ${files.length}...`);
-        await uploadEditedPhotos(session.id, formData);
-        uploadedCount++;
-        setUploadStats({ current: uploadedCount, total: files.length });
-      } catch (err) {
-        console.error("Gagal upload file:", files[i].name, err);
-      }
-    }
+    const uploadedCount = await uploadInBatches(files, uploadEditedPhotos);
 
     setUploadProgress(`Selesai! ${uploadedCount} foto berhasil diupload.`);
     router.refresh();
     setUploading(false);
     if (editedInputRef.current) editedInputRef.current.value = "";
-    
-    setTimeout(() => {
-      setUploadProgress("");
-      setUploadStats(null);
-    }, 3000);
+    setTimeout(() => { setUploadProgress(""); setUploadStats(null); }, 3000);
   };
 
   const handleEditedUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -284,9 +303,10 @@ export default function SessionDetail({
         </div>
       </div>
 
-      {/* Upload progress toast */}
+
+      {/* Floating upload progress toast */}
       {(uploadProgress || uploadStats) && (
-        <div className="mb-6 px-5 py-4 rounded-xl bg-white/[0.04] ring-1 ring-white/[0.08] flex flex-col gap-3 shadow-2xl">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-full max-w-sm px-5 py-4 rounded-2xl bg-[#111] ring-1 ring-white/[0.12] flex flex-col gap-3 shadow-2xl shadow-black/60">
           <div className="flex items-center justify-between text-sm font-medium">
             <span className="text-white/80">{uploadProgress}</span>
             {uploadStats && (
@@ -296,7 +316,7 @@ export default function SessionDetail({
             )}
           </div>
           {uploadStats && (
-            <div className="h-2 w-full bg-black/50 rounded-full overflow-hidden inset-shadow-sm">
+            <div className="h-1.5 w-full bg-white/[0.06] rounded-full overflow-hidden">
               <div 
                 className="h-full bg-emerald-500 rounded-full transition-all duration-300 ease-out"
                 style={{ width: `${(uploadStats.current / uploadStats.total) * 100}%` }}
@@ -464,7 +484,7 @@ export default function SessionDetail({
                         onClick={() => {
                           const siteUrl =
                             process.env.NEXT_PUBLIC_SITE_URL ||
-                            "https://koetik.studio.my.id";
+                            "https://koetikstudio.my.id";
                           copyToClipboard(`${siteUrl}/select/${session.id}`);
                         }}
                         className="text-xs text-white/40 hover:text-white transition-colors underline"
@@ -580,7 +600,7 @@ export default function SessionDetail({
                               return num.startsWith("0") ? "62" + num.slice(1) : num;
                             })()
                           : ""
-                      }?text=${encodeURIComponent(`Hai ${session.client_name}, silahkan pilih foto kamu di link berikut:\n\n${selectionLink.link}\n\nKode akses: ${selectionLink.accessCode}\n\nPilih maksimal ${session.max_selections} foto ya. Terima kasih! - koetik.studio.my.id`)}`}
+                      }?text=${encodeURIComponent(`Hai ${session.client_name}, silahkan pilih foto kamu di link berikut:\n\n${selectionLink.link}\n\nKode akses: ${selectionLink.accessCode}\n\nPilih maksimal ${session.max_selections} foto ya. Terima kasih! - koetikstudio.my.id`)}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold rounded-xl transition-colors"
@@ -720,7 +740,7 @@ export default function SessionDetail({
                       className="flex-1 bg-white/[0.03] border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm font-medium text-white placeholder-white/20 focus:outline-none focus:ring-1 focus:ring-white/20 transition-all"
                     />
                     <span className="text-xs text-white/30 shrink-0">
-                      .koetik.studio.my.id
+                      .koetikstudio.my.id
                     </span>
                   </div>
                 </div>
@@ -785,14 +805,14 @@ export default function SessionDetail({
                     Gallery is live!
                   </p>
                   <p className="text-xs text-white/40">
-                    {session.gallery_slug}.koetik.studio.my.id
+                    {session.gallery_slug}.koetikstudio.my.id
                   </p>
                 </div>
                 <div className="flex gap-2">
                   <button
                     onClick={() =>
                       copyToClipboard(
-                        `https://${session.gallery_slug}.koetik.studio.my.id`
+                        `https://${session.gallery_slug}.koetikstudio.my.id`
                       )
                     }
                     className="px-3 py-2 rounded-lg bg-white/[0.06] text-[11px] text-white/50 hover:bg-white/[0.1]"

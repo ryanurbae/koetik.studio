@@ -63,7 +63,7 @@ function LoginForm() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  placeholder="admin@koetik.studio.my.id"
+                  placeholder="admin@koetikstudio.my.id"
                   className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-4 py-3.5 text-sm font-medium text-white placeholder-white/20 focus:outline-none focus:ring-1 focus:ring-white/20 focus:border-white/20 transition-all"
                 />
               </div>
@@ -98,7 +98,7 @@ function LoginForm() {
         </div>
 
         <p className="text-center text-[11px] text-white/20 mt-8 uppercase tracking-[0.15em]">
-          &copy; 2024 koetik.studio.my.id
+          &copy; 2024 koetikstudio.my.id
         </p>
       </div>
     </div>

@@ -7,8 +7,8 @@ export async function middleware(request: NextRequest) {
 
   // --- Subdomain routing (gallery) ---
   const mainDomains = [
-    "koetik.studio.my.id",
-    "www.koetik.studio.my.id",
+    "koetikstudio.my.id",
+    "www.koetikstudio.my.id",
     "localhost:3000",
     "localhost",
   ];

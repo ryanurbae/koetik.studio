@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ContactModal } from "@/components/contact";
@@ -11,6 +12,7 @@ type Slide = {
   role: string;
   year: string;
   image: string;
+  imageFallback: string | null;
   slug: string;
 };
 
@@ -39,22 +41,18 @@ function getWidth(offset: number): number {
 const EASE: [number, number, number, number] = [0.76, 0, 0.24, 1];
 const DURATION = 0.75;
 
-function CarouselImage({ src, alt, isCenter }: { src: string; alt: string; isCenter: boolean }) {
+function CarouselImage({ src, alt, isCenter, fallback }: { src: string; alt: string; isCenter: boolean; fallback?: string | null }) {
   const [loaded, setLoaded] = useState(false);
-  const imgRef = useRef<HTMLImageElement>(null);
-  
-  useEffect(() => {
-    if (imgRef.current?.complete) {
-      setLoaded(true);
-    }
-  }, [src]);
+  const [imgSrc, setImgSrc] = useState(src);
 
   return (
     <motion.img
-      ref={imgRef}
-      src={src}
+      src={imgSrc}
       alt={alt}
       onLoad={() => setLoaded(true)}
+      onError={() => {
+        if (fallback && imgSrc !== fallback) setImgSrc(fallback);
+      }}
       className="h-full w-full object-cover"
       initial={{ opacity: 0 }}
       animate={{
@@ -89,11 +87,12 @@ export default function LandingPage() {
         const res = await fetch("/api/galleries");
         const data = await res.json();
         if (data.galleries) {
-          const fetchedSlides: Slide[] = data.galleries.map((g: { title: string; description: string; coverUrl: string; slug: string }) => ({
+          const fetchedSlides: Slide[] = data.galleries.map((g: { title: string; description: string; coverUrl: string; coverFallback: string | null; slug: string }) => ({
             client: g.title,
             role: g.description || "Portfolio",
             year: new Date().getFullYear().toString(),
-            image: g.coverUrl || "",
+            image: g.coverUrl || g.coverFallback || "",
+            imageFallback: g.coverFallback || null,
             slug: g.slug,
           }));
           const validSlides = fetchedSlides.filter(s => s.image !== "");
@@ -104,7 +103,7 @@ export default function LandingPage() {
             validSlides.map(
               (slide) =>
                 new Promise((resolve) => {
-                  const img = new Image();
+                  const img = new window.Image();
                   img.src = slide.image;
                   img.onload = resolve;
                   img.onerror = resolve; // Continue even if one image fails
@@ -245,10 +244,12 @@ export default function LandingPage() {
                       }}
                       style={{ pointerEvents: isCenter ? "auto" : "none" }}
                     >
-                      <CarouselImage 
+                      <CarouselImage
+                        key={slides[si].image}
                         src={slides[si].image}
                         alt={slides[si].client}
                         isCenter={isCenter}
+                        fallback={slides[si].imageFallback}
                       />
                     </Link>
                   </motion.div>
@@ -278,9 +279,9 @@ export default function LandingPage() {
       <header className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 md:px-10 h-16 mix-blend-difference pointer-events-none">
         <Link
           href="/"
-          className="text-[15px] font-semibold tracking-[-0.02em] text-white uppercase pointer-events-auto"
+          className="pointer-events-auto"
         >
-          koetik.studio
+          <Image src="/logo-white-rev.png" alt="koetik.studio" width={140} height={36} className="h-9 w-auto" />
         </Link>
 
         <nav className="hidden md:flex items-center gap-10 pointer-events-auto">
@@ -384,7 +385,7 @@ export default function LandingPage() {
           <div className="text-center pointer-events-auto">
             <button
               onClick={() => setContactOpen(true)}
-              className="inline-flex items-center gap-2 text-[12px] uppercase tracking-[0.2em] font-medium bg-white text-black px-4 py-2 hover:bg-white/90 transition-colors duration-300"
+              className="inline-flex items-center gap-2 text-[12px] uppercase tracking-[0.2em] font-medium bg-white text-black px-4 py-2 transition-all duration-200 hover:bg-black hover:text-white hover:ring-1 hover:ring-white active:scale-95"
             >
               Contact Us
             </button>

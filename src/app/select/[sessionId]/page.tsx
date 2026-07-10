@@ -161,7 +161,7 @@ export default function SelectPage({
             {/* Logo */}
             <div className="text-center mb-10">
               <h1 className="text-xl font-heading font-bold tracking-tight mb-1">
-                koetik.studio.my.id
+                koetik.studio
               </h1>
               <p className="text-xs text-white/30 uppercase tracking-[0.2em]">
                 Photo Selection
@@ -171,8 +171,8 @@ export default function SelectPage({
             {/* Card */}
             <div className="p-1 rounded-2xl bg-white/[0.02] ring-1 ring-white/[0.06]">
               <div className="bg-[#0a0a0a] rounded-[calc(1rem-4px)] p-6 shadow-[inset_0_1px_1px_rgba(255,255,255,0.04)]">
-                <p className="text-sm text-white/50 mb-4">
-                  Masukkan kode akses dari koetik.studio.my.id
+                <p className="text-center text-white/50 mb-4">
+                  Masukkan kode akses dari koetik.studio
                 </p>
                 <form onSubmit={handleVerify}>
                   <input
@@ -247,21 +247,23 @@ export default function SelectPage({
               return (
                 <div
                   key={photo.id}
-                  className={`relative aspect-square rounded-lg overflow-hidden cursor-pointer ring-1 transition-all duration-200 ${
-                    isSelected
-                      ? "ring-2 ring-white scale-[0.97]"
-                      : isDisabled
-                        ? "ring-white/[0.04] opacity-40 cursor-not-allowed"
-                        : "ring-white/[0.06] hover:ring-white/20"
-                  }`}
+                  className={`relative aspect-square rounded-lg overflow-hidden cursor-pointer ring-1 transition-all duration-200 select-none ${isSelected
+                    ? "ring-2 ring-white scale-[0.97]"
+                    : isDisabled
+                      ? "ring-white/[0.04] opacity-40 cursor-not-allowed"
+                      : "ring-white/[0.06] hover:ring-white/20"
+                    }`}
                   onClick={() => !isDisabled && togglePhoto(photo.id)}
+                  onContextMenu={(e) => e.preventDefault()}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={photo.url}
                     alt={photo.filename}
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-cover pointer-events-none"
                     loading="lazy"
+                    draggable={false}
+                    onContextMenu={(e) => e.preventDefault()}
                   />
 
                   {/* Selection overlay */}
@@ -368,7 +370,7 @@ export default function SelectPage({
             <p className="text-sm text-white/40 mb-8">
               Kamu sudah memilih {selectedIds.size} foto untuk diedit.
               <br />
-              Konfirmasi ke koetik.studio.my.id via WhatsApp ya!
+              Konfirmasi ke koetik.studio via WhatsApp ya!
             </p>
 
             <a
@@ -409,8 +411,10 @@ export default function SelectPage({
           <img
             src={lightboxPhoto.url}
             alt={lightboxPhoto.filename}
-            className="max-w-full max-h-[90vh] object-contain rounded-lg"
+            className="max-w-full max-h-[90vh] object-contain rounded-lg select-none"
             onClick={(e) => e.stopPropagation()}
+            onContextMenu={(e) => e.preventDefault()}
+            draggable={false}
           />
           {/* Select/Deselect in lightbox */}
           <div
@@ -423,11 +427,10 @@ export default function SelectPage({
                 !selectedIds.has(lightboxPhoto.id) &&
                 selectedIds.size >= maxSelections
               }
-              className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all ${
-                selectedIds.has(lightboxPhoto.id)
-                  ? "bg-white text-black"
-                  : "bg-white/10 text-white ring-1 ring-white/20 hover:bg-white/20"
-              } disabled:opacity-30`}
+              className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all ${selectedIds.has(lightboxPhoto.id)
+                ? "bg-white text-black"
+                : "bg-white/10 text-white ring-1 ring-white/20 hover:bg-white/20"
+                } disabled:opacity-30`}
             >
               {selectedIds.has(lightboxPhoto.id)
                 ? "✓ Terpilih"

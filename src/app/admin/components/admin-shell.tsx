@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { User } from "@supabase/supabase-js";
@@ -60,13 +61,8 @@ export default function AdminShell({
       >
         {/* Logo */}
         <div className="mb-14 flex items-center justify-between">
-          <Link href="/admin" className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center ring-1 ring-white/[0.08]">
-              <div className="w-3 h-3 bg-white rounded-full" />
-            </div>
-            <span className="text-lg font-heading font-medium tracking-tight">
-              koetik<span className="text-white/30">.admin</span>
-            </span>
+          <Link href="/admin" className="flex items-center">
+            <Image src="/logo-white-rev.png" alt="koetik.studio" width={140} height={36} className="h-9 w-auto" />
           </Link>
           <button
             onClick={() => setSidebarOpen(false)}

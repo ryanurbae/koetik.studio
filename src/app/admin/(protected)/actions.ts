@@ -97,7 +97,7 @@ export async function generateSelectionLink(
   revalidatePath(`/admin/sessions/${sessionId}`);
   revalidatePath("/admin/sessions");
 
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://koetik.studio.my.id";
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://koetikstudio.my.id";
   return {
     link: `${siteUrl}/select/${sessionId}`,
     accessCode,
@@ -257,37 +257,20 @@ export async function uploadGalleryThumbnail(sessionId: string, formData: FormDa
   
   if (!file) throw new Error("No file uploaded");
 
-  const ext = file.name.split(".").pop() || "jpg";
-  const storagePath = `${sessionId}/thumbnail_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  // Fixed path per session — upsert overwrites previous thumbnail
+  const storagePath = `${sessionId}/cover.jpg`;
 
   const { error: uploadError } = await supabase.storage
-    .from("edited-photos")
+    .from("thumbnails")
     .upload(storagePath, file, {
-      contentType: file.type,
-      upsert: false,
+      contentType: "image/jpeg",
+      upsert: true,
     });
 
   if (uploadError) throw new Error(uploadError.message);
 
-  const { data: photo, error: dbError } = await supabase.from("edited_photos").insert({
-    session_id: sessionId,
-    filename: file.name,
-    storage_path: storagePath,
-    file_size: file.size,
-  }).select("id").single();
-
-  if (dbError) throw new Error(dbError.message);
-
-  // set it as cover
-  const { error: updateError } = await supabase.from("sessions").update({
-    gallery_cover_photo_id: photo.id,
-    updated_at: new Date().toISOString()
-  }).eq("id", sessionId);
-
-  if (updateError) throw new Error(updateError.message);
-
   revalidatePath(`/admin/sessions/${sessionId}`);
-  return photo.id;
+  revalidatePath("/");
 }
 
 // ============================================

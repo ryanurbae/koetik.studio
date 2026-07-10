@@ -9,7 +9,7 @@ const spaceGrotesk = Space_Grotesk({
 });
 
 export const metadata: Metadata = {
-  title: "koetik.studio.my.id",
+  title: "koetikstudio.my.id",
   description: "Photography & Creative Studio. Based in Indonesia.",
 };
 

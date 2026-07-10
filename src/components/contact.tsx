@@ -15,7 +15,7 @@ export function ContactForm() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const waNumber = process.env.NEXT_PUBLIC_WA_NUMBER || "6281234567890";
-    const message = `Halo koetik.studio.my.id! Saya tertarik dengan jasa foto wisuda.
+    const message = `Halo koetikstudio! Saya tertarik dengan jasa foto wisuda.
 
 Nama: ${formData.nama}
 Universitas: ${formData.universitas}
@@ -128,7 +128,7 @@ export function ContactModal({ open, onClose }: { open: boolean; onClose: () => 
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 40, opacity: 0 }}
             transition={{ duration: 0.4, ease: [0.25, 0.1, 0.25, 1] }}
-            className="relative w-full md:max-w-lg bg-[#0a0a0a] border border-white/[0.08] md:rounded-2xl p-6 md:p-8 max-h-[92dvh] overflow-y-auto"
+            className="relative w-full md:max-w-lg bg-[#0a0a0a] border border-white/[0.08] md:rounded-2xl p-6 md:p-8 max-h-[92dvh] overflow-y-auto overflow-x-hidden overscroll-contain"
           >
             <div className="flex items-center justify-between mb-6">
               <span className="text-[11px] uppercase tracking-[0.25em] text-white/40 font-medium">[ contact ]</span>

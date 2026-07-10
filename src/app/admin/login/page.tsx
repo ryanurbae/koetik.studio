@@ -56,7 +56,7 @@ function LoginForm() {
             <form onSubmit={handleLogin} className="flex flex-col gap-5">
               <div>
                 <label className="block text-[10px] uppercase tracking-[0.2em] text-white/40 font-medium mb-3">
-                  Email
+                  User
                 </label>
                 <input
                   type="email"

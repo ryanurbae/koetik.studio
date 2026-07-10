@@ -54,18 +54,22 @@ export function CropModal({
   onClose,
   imageUrl,
   onCropSave,
-  aspect,
 }: {
   open: boolean;
   onClose: () => void;
   imageUrl: string;
   onCropSave: (croppedBlob: Blob) => Promise<void>;
-  aspect?: number;
 }) {
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
   const [saving, setSaving] = useState(false);
+  // Compute carousel aspect ratio: MAIN_W(50vw) / 100dvh
+  const carouselAspect = aspect ?? (
+    typeof window !== "undefined"
+      ? (window.innerWidth * 0.5) / window.innerHeight
+      : 8 / 9
+  );
 
   const onCropComplete = useCallback(
     (croppedArea: Area, croppedAreaPixels: Area) => {
@@ -117,11 +121,15 @@ export function CropModal({
                 image={imageUrl}
                 crop={crop}
                 zoom={zoom}
-                aspect={aspect ?? (2 / 3)}
+                aspect={carouselAspect}
                 onCropChange={setCrop}
                 onCropComplete={onCropComplete}
                 onZoomChange={setZoom}
               />
+              {/* Aspect ratio hint */}
+              <div className="absolute bottom-2 right-2 text-[10px] text-white/30 bg-black/40 px-2 py-0.5 rounded-full">
+                {Math.round(carouselAspect * 100) / 100 > 1 ? "landscape" : "portrait"} · {(carouselAspect).toFixed(2)}
+              </div>
             </div>
             
             <div className="p-4 border-t border-white/[0.06] flex flex-col sm:flex-row items-center gap-4 bg-[#0a0a0a]">

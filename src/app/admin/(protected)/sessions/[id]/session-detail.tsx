@@ -110,12 +110,21 @@ export default function SessionDetail({
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
   const [photoToDelete, setPhotoToDelete] = useState<{ id: string; type: "raw" | "edited" } | null>(null);
   const [cropImageUrl, setCropImageUrl] = useState<string | null>(null);
+  const [thumbnailSaved, setThumbnailSaved] = useState(false);
 
   const handleCropSave = async (blob: Blob) => {
     const formData = new FormData();
     formData.append("file", blob, "thumbnail.jpg");
-    await uploadGalleryThumbnail(session.id, formData);
-    router.refresh();
+    try {
+      await uploadGalleryThumbnail(session.id, formData);
+      setCropImageUrl(null);
+      setThumbnailSaved(true);
+      setTimeout(() => setThumbnailSaved(false), 3500);
+      router.refresh();
+    } catch (err) {
+      console.error(err);
+      alert("Gagal upload thumbnail. Pastikan bucket 'thumbnails' sudah dibuat di Supabase.");
+    }
   };
 
   // Real-time: auto-reload when client submits selections
@@ -972,6 +981,16 @@ export default function SessionDetail({
         imageUrl={cropImageUrl || ""}
         onCropSave={handleCropSave}
       />
+
+      {/* Toast: thumbnail saved */}
+      {thumbnailSaved && (
+        <div className="fixed bottom-6 right-6 z-[100] flex items-center gap-3 px-4 py-3 rounded-xl bg-emerald-500/10 ring-1 ring-emerald-500/30 text-emerald-400 text-sm font-medium backdrop-blur-sm animate-in fade-in slide-in-from-bottom-2">
+          <svg width="16" height="16" viewBox="0 0 15 15" fill="none">
+            <path d="M11.4669 3.72684C11.7558 3.91574 11.8369 4.30308 11.648 4.59198L7.39799 11.092C7.29783 11.2452 7.13556 11.3467 6.95402 11.3699C6.77247 11.3931 6.58989 11.3354 6.45446 11.2124L3.70446 8.71241C3.44905 8.48022 3.43023 8.08494 3.66242 7.82953C3.89461 7.57412 4.28989 7.5553 4.5453 7.78749L6.75292 9.79441L10.6018 3.90792C10.7907 3.61902 11.178 3.53795 11.4669 3.72684Z" fill="currentColor" fillRule="evenodd" clipRule="evenodd" />
+          </svg>
+          Thumbnail berhasil disimpan!
+        </div>
+      )}
     </>
   );
 }

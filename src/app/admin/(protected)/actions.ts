@@ -377,3 +377,18 @@ export async function updatePortfolioVisibility(
   revalidatePath("/admin/sessions");
   revalidatePath("/");
 }
+
+export async function updateDriveLink(sessionId: string, driveLink: string) {
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from("sessions")
+    .update({
+      drive_link: driveLink || null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", sessionId);
+
+  if (error) throw new Error(error.message);
+  revalidatePath(`/admin/sessions/${sessionId}`);
+}

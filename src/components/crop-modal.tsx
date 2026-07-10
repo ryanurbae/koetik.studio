@@ -115,7 +115,7 @@ export function CropModal({
                 image={imageUrl}
                 crop={crop}
                 zoom={zoom}
-                aspect={16 / 9}
+                aspect={2 / 3}
                 onCropChange={setCrop}
                 onCropComplete={onCropComplete}
                 onZoomChange={setZoom}

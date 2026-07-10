@@ -114,7 +114,7 @@ export default function NewSessionPage() {
 
               <div>
                 <label className="block text-[10px] uppercase tracking-[0.2em] text-white/40 font-medium mb-3">
-                  Graduation Date
+                  Date
                 </label>
                 <input
                   type="date"

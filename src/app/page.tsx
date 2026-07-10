@@ -98,15 +98,17 @@ export default function LandingPage() {
           const validSlides = fetchedSlides.filter(s => s.image !== "");
           setSlides(validSlides);
 
-          // Preload images to ensure smooth transition
+          // Preload gambar-gambar awal saja (maksimal 5) agar loading screen tidak terlalu lama
+          // Gambar sisanya akan di-load secara asinkron (background) oleh komponen CarouselImage
+          const imagesToPreload = validSlides.slice(0, 5);
           await Promise.all(
-            validSlides.map(
+            imagesToPreload.map(
               (slide) =>
                 new Promise((resolve) => {
                   const img = new window.Image();
                   img.src = slide.image;
                   img.onload = resolve;
-                  img.onerror = resolve; // Continue even if one image fails
+                  img.onerror = resolve; // Lanjut jika gambar gagal diload
                 })
             )
           );

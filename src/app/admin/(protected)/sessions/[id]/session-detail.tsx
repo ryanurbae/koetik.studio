@@ -149,7 +149,7 @@ export default function SessionDetail({
 
   const uploadInBatches = async (
     files: FileList | File[],
-    uploadFn: (sessionId: string, formData: FormData) => Promise<void>
+    uploadFn: (sessionId: string, formData: FormData) => Promise<unknown>
   ) => {
     const fileArr = Array.from(files);
     let uploadedCount = 0;

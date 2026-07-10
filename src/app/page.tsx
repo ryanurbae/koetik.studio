@@ -237,7 +237,11 @@ export default function LandingPage() {
                     style={{ cursor: isCenter ? "default" : "pointer" }}
                   >
                     <Link 
-                      href={`/g/${slides[si].slug}`} 
+                      href={
+                        typeof window !== "undefined" && window.location.host.includes("koetikstudio.my.id")
+                          ? `https://${slides[si].slug}.koetikstudio.my.id`
+                          : `/g/${slides[si].slug}`
+                      } 
                       className="w-full h-full block"
                       onClick={(e) => {
                         if (!isCenter) {

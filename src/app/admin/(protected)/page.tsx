@@ -10,22 +10,16 @@ export default async function AdminOverview() {
   let deliveredCount = 0;
 
   try {
-    const { count: total } = await supabase
-      .from("sessions")
-      .select("*", { count: "exact", head: true });
-    sessionCount = total || 0;
+    // Jalankan ke-3 query secara paralel agar jauh lebih cepat
+    const [totalRes, pendingRes, deliveredRes] = await Promise.all([
+      supabase.from("sessions").select("*", { count: "exact", head: true }),
+      supabase.from("sessions").select("*", { count: "exact", head: true }).in("status", ["selection_open", "selection_done"]),
+      supabase.from("sessions").select("*", { count: "exact", head: true }).eq("status", "delivered")
+    ]);
 
-    const { count: pending } = await supabase
-      .from("sessions")
-      .select("*", { count: "exact", head: true })
-      .in("status", ["selection_open", "selection_done"]);
-    pendingCount = pending || 0;
-
-    const { count: delivered } = await supabase
-      .from("sessions")
-      .select("*", { count: "exact", head: true })
-      .eq("status", "delivered");
-    deliveredCount = delivered || 0;
+    sessionCount = totalRes.count || 0;
+    pendingCount = pendingRes.count || 0;
+    deliveredCount = deliveredRes.count || 0;
   } catch {
     // Tables don't exist yet - that's okay
   }

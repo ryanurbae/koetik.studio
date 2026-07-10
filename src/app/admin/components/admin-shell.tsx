@@ -13,6 +13,34 @@ const navItems = [
   { label: "Settings", href: "/admin/settings" },
 ];
 
+// Hamburger icon
+function IconMenu() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 15 15" fill="none">
+      <path
+        d="M1.5 3C1.22386 3 1 3.22386 1 3.5C1 3.77614 1.22386 4 1.5 4H13.5C13.7761 4 14 3.77614 14 3.5C14 3.22386 13.7761 3 13.5 3H1.5ZM1 7.5C1 7.22386 1.22386 7 1.5 7H13.5C13.7761 7 14 7.22386 14 7.5C14 7.77614 13.7761 8 13.5 8H1.5C1.22386 8 1 7.77614 1 7.5ZM1 11.5C1 11.2239 1.22386 11 1.5 11H13.5C13.7761 11 14 11.2239 14 11.5C14 11.7761 13.7761 12 13.5 12H1.5C1.22386 12 1 11.7761 1 11.5Z"
+        fill="currentColor"
+        fillRule="evenodd"
+        clipRule="evenodd"
+      />
+    </svg>
+  );
+}
+
+// Close (X) icon
+function IconClose() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 15 15" fill="none">
+      <path
+        d="M11.7816 4.03157C12.0062 3.80702 12.0062 3.44295 11.7816 3.2184C11.5571 2.99385 11.193 2.99385 10.9685 3.2184L7.50005 6.68682L4.03164 3.2184C3.80708 2.99385 3.44301 2.99385 3.21846 3.2184C2.99391 3.44295 2.99391 3.80702 3.21846 4.03157L6.68688 7.49999L3.21846 10.9684C2.99391 11.193 2.99391 11.557 3.21846 11.7816C3.44301 12.0061 3.80708 12.0061 4.03164 11.7816L7.50005 8.31316L10.9685 11.7816C11.193 12.0061 11.5571 12.0061 11.7816 11.7816C12.0062 11.557 12.0062 11.193 11.7816 10.9684L8.31322 7.49999L11.7816 4.03157Z"
+        fill="currentColor"
+        fillRule="evenodd"
+        clipRule="evenodd"
+      />
+    </svg>
+  );
+}
+
 export default function AdminShell({
   user,
   children,
@@ -22,6 +50,7 @@ export default function AdminShell({
 }) {
   const pathname = usePathname();
   const router = useRouter();
+  // Default tertutup di semua ukuran layar
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const handleLogout = async () => {
@@ -45,32 +74,30 @@ export default function AdminShell({
 
   return (
     <div className="min-h-[100dvh] flex bg-[#0a0a0a] font-sans text-white">
-      {/* Mobile overlay */}
+      {/* Overlay (semua ukuran layar) */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden"
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
-      {/* Sidebar */}
+      {/* Sidebar — selalu fixed, default tertutup */}
       <aside
-        className={`fixed md:static inset-y-0 left-0 z-50 flex flex-col w-72 p-6 border-r border-white/[0.04] bg-[#0a0a0a] md:bg-white/[0.01] transition-transform duration-300 ${
-          sidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
+        className={`fixed inset-y-0 left-0 z-50 flex flex-col w-72 p-6 border-r border-white/[0.04] bg-[#0d0d0d] transition-transform duration-300 ease-in-out ${
+          sidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        {/* Logo */}
+        {/* Logo + close button */}
         <div className="mb-14 flex items-center justify-between">
-          <Link href="/admin" className="flex items-center">
+          <Link href="/admin" className="flex items-center" onClick={() => setSidebarOpen(false)}>
             <Image src="/logo-white-rev.png" alt="koetik.studio" width={140} height={36} className="h-9 w-auto" />
           </Link>
           <button
             onClick={() => setSidebarOpen(false)}
-            className="md:hidden w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-white/40"
+            className="w-8 h-8 rounded-full bg-white/[0.05] flex items-center justify-center text-white/40 hover:bg-white/[0.1] hover:text-white transition-all"
           >
-            <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M11.7816 4.03157C12.0062 3.80702 12.0062 3.44295 11.7816 3.2184C11.5571 2.99385 11.193 2.99385 10.9685 3.2184L7.50005 6.68682L4.03164 3.2184C3.80708 2.99385 3.44301 2.99385 3.21846 3.2184C2.99391 3.44295 2.99391 3.80702 3.21846 4.03157L6.68688 7.49999L3.21846 10.9684C2.99391 11.193 2.99391 11.557 3.21846 11.7816C3.44301 12.0061 3.80708 12.0061 4.03164 11.7816L7.50005 8.31316L10.9685 11.7816C11.193 12.0061 11.5571 12.0061 11.7816 11.7816C12.0062 11.557 12.0062 11.193 11.7816 10.9684L8.31322 7.49999L11.7816 4.03157Z" fill="currentColor" fillRule="evenodd" clipRule="evenodd" />
-            </svg>
+            <IconClose />
           </button>
         </div>
 
@@ -121,21 +148,20 @@ export default function AdminShell({
         </div>
       </aside>
 
-      {/* Main content */}
+      {/* Main content — full width karena sidebar selalu fixed */}
       <main className="flex-1 flex flex-col relative overflow-hidden min-w-0">
         {/* Top header */}
-        <header className="w-full px-6 md:px-10 py-6 flex justify-between items-center z-10 border-b border-white/[0.04]">
-          <div className="flex items-center gap-4">
-            {/* Mobile menu button */}
+        <header className="w-full px-5 py-5 flex justify-between items-center z-10 border-b border-white/[0.04]">
+          <div className="flex items-center gap-3">
+            {/* Toggle sidebar button — selalu tampil */}
             <button
-              onClick={() => setSidebarOpen(true)}
-              className="md:hidden w-10 h-10 rounded-xl bg-white/[0.04] flex items-center justify-center text-white/50 hover:bg-white/[0.08] transition-colors"
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className="w-9 h-9 rounded-lg bg-white/[0.04] flex items-center justify-center text-white/50 hover:bg-white/[0.08] hover:text-white transition-all"
+              aria-label="Toggle sidebar"
             >
-              <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M1.5 3C1.22386 3 1 3.22386 1 3.5C1 3.77614 1.22386 4 1.5 4H13.5C13.7761 4 14 3.77614 14 3.5C14 3.22386 13.7761 3 13.5 3H1.5ZM1 7.5C1 7.22386 1.22386 7 1.5 7H13.5C13.7761 7 14 7.22386 14 7.5C14 7.77614 13.7761 8 13.5 8H1.5C1.22386 8 1 7.77614 1 7.5ZM1 11.5C1 11.2239 1.22386 11 1.5 11H13.5C13.7761 11 14 11.2239 14 11.5C14 11.7761 13.7761 12 13.5 12H1.5C1.22386 12 1 11.7761 1 11.5Z" fill="currentColor" fillRule="evenodd" clipRule="evenodd" />
-              </svg>
+              {sidebarOpen ? <IconClose /> : <IconMenu />}
             </button>
-            <h1 className="text-xl md:text-2xl font-heading font-semibold tracking-tight">
+            <h1 className="text-xl font-heading font-semibold tracking-tight">
               {activeLabel}
             </h1>
           </div>

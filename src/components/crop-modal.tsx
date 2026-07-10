@@ -54,11 +54,13 @@ export function CropModal({
   onClose,
   imageUrl,
   onCropSave,
+  aspect,
 }: {
   open: boolean;
   onClose: () => void;
   imageUrl: string;
   onCropSave: (croppedBlob: Blob) => Promise<void>;
+  aspect?: number;
 }) {
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
@@ -115,7 +117,7 @@ export function CropModal({
                 image={imageUrl}
                 crop={crop}
                 zoom={zoom}
-                aspect={2 / 3}
+                aspect={aspect ?? (2 / 3)}
                 onCropChange={setCrop}
                 onCropComplete={onCropComplete}
                 onZoomChange={setZoom}

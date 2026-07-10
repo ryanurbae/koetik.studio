@@ -65,11 +65,10 @@ export function CropModal({
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
   const [saving, setSaving] = useState(false);
   // Compute carousel aspect ratio: MAIN_W(50vw) / 100dvh
-  const carouselAspect = aspect ?? (
+  const carouselAspect =
     typeof window !== "undefined"
       ? (window.innerWidth * 0.5) / window.innerHeight
-      : 8 / 9
-  );
+      : 8 / 9;
 
   const onCropComplete = useCallback(
     (croppedArea: Area, croppedAreaPixels: Area) => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Space_Grotesk, Inter } from "next/font/google";
 
 const spaceGrotesk = Space_Grotesk({
@@ -21,6 +21,16 @@ type Photo = {
 
 type Step = "verify" | "select" | "done";
 
+const PHOTO_RENDER_BATCH = 36;
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 4;
+const ZOOM_STEP = 0.5;
+
+function clampPan(value: number, zoom: number, viewportSize: number) {
+  const limit = ((zoom - 1) * viewportSize) / 2;
+  return Math.max(-limit, Math.min(limit, value));
+}
+
 export default function SelectPage({
   params,
 }: {
@@ -37,23 +47,231 @@ export default function SelectPage({
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [waUrl, setWaUrl] = useState("");
-  const [lightboxPhoto, setLightboxPhoto] = useState<Photo | null>(null);
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
+  const [hasMorePhotos, setHasMorePhotos] = useState(false);
+  const [loadingMorePhotos, setLoadingMorePhotos] = useState(false);
+  const [totalPhotos, setTotalPhotos] = useState(0);
+  const [zoomLevel, setZoomLevel] = useState(MIN_ZOOM);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [previewUrls, setPreviewUrls] = useState<Record<string, string>>({});
+  const [previewLoadingId, setPreviewLoadingId] = useState<string | null>(null);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+  const loadingMoreRef = useRef(false);
+  const previewRequestsRef = useRef(new Set<string>());
+  const dragStateRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    panX: number;
+    panY: number;
+  } | null>(null);
+
+  const lightboxPhoto =
+    lightboxIndex === null ? null : photos[lightboxIndex] ?? null;
+
+  const resetZoom = useCallback(() => {
+    setZoomLevel(MIN_ZOOM);
+    setPan({ x: 0, y: 0 });
+    setIsDragging(false);
+    dragStateRef.current = null;
+  }, []);
+
+  const changeZoom = useCallback((delta: number) => {
+    setZoomLevel((current) => {
+      const next = Math.max(
+        MIN_ZOOM,
+        Math.min(MAX_ZOOM, current + delta)
+      );
+      if (next === MIN_ZOOM) setPan({ x: 0, y: 0 });
+      return next;
+    });
+  }, []);
+
+  const loadMorePhotos = useCallback(async () => {
+    if (loadingMoreRef.current || !hasMorePhotos) return [] as Photo[];
+    loadingMoreRef.current = true;
+    setLoadingMorePhotos(true);
+
+    try {
+      const response = await fetch(
+        `/api/select/${sessionId}/photos?offset=${photos.length}&limit=${PHOTO_RENDER_BATCH}`,
+        { headers: { "x-access-code": accessCode.toUpperCase() } }
+      );
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Gagal memuat foto");
+
+      const existingIds = new Set(photos.map((photo) => photo.id));
+      const nextPhotos = (data.photos as Photo[]).filter(
+        (photo) => !existingIds.has(photo.id)
+      );
+      setPhotos((current) => [...current, ...nextPhotos]);
+      setSelectedIds((current) =>
+        new Set([...current, ...(data.selectedIds || [])])
+      );
+      setHasMorePhotos(Boolean(data.hasMore));
+      setTotalPhotos(Number(data.total) || 0);
+      return nextPhotos;
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : "Gagal memuat foto berikutnya"
+      );
+      return [] as Photo[];
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMorePhotos(false);
+    }
+  }, [accessCode, hasMorePhotos, photos, sessionId]);
+
+  const loadPreview = useCallback(
+    async (photo: Photo) => {
+      if (previewRequestsRef.current.has(photo.id)) return;
+
+      previewRequestsRef.current.add(photo.id);
+      setPreviewLoadingId(photo.id);
+
+      try {
+        const response = await fetch(
+          `/api/select/${sessionId}/photos/${photo.id}`,
+          { headers: { "x-access-code": accessCode.toUpperCase() } }
+        );
+        const data = await response.json();
+        if (!response.ok || !data.previewUrl) return;
+
+        setPreviewUrls((current) => ({
+          ...current,
+          [photo.id]: data.previewUrl,
+        }));
+      } catch {
+        // Keep thumbnail visible when high-resolution preview fails.
+      } finally {
+        previewRequestsRef.current.delete(photo.id);
+        setPreviewLoadingId((current) =>
+          current === photo.id ? null : current
+        );
+      }
+    },
+    [accessCode, sessionId]
+  );
+
+  const closeLightbox = useCallback(() => {
+    resetZoom();
+    setLightboxIndex(null);
+  }, [resetZoom]);
+
+  const openLightbox = useCallback(
+    (index: number) => {
+      resetZoom();
+      setLightboxIndex(index);
+      const photo = photos[index];
+      if (photo && !previewUrls[photo.id]) void loadPreview(photo);
+    },
+    [loadPreview, photos, previewUrls, resetZoom]
+  );
+
+  const navigateLightbox = useCallback(
+    (direction: -1 | 1) => {
+      if (lightboxIndex === null) return;
+      if (
+        direction === 1 &&
+        lightboxIndex === photos.length - 1 &&
+        hasMorePhotos
+      ) {
+        resetZoom();
+        void loadMorePhotos().then((nextPhotos) => {
+          const photo = nextPhotos[0];
+          if (!photo) return;
+          setLightboxIndex(photos.length);
+          if (!previewUrls[photo.id]) void loadPreview(photo);
+        });
+        return;
+      }
+      const nextIndex =
+        (lightboxIndex + direction + photos.length) % photos.length;
+      resetZoom();
+      setLightboxIndex(nextIndex);
+      const photo = photos[nextIndex];
+      if (photo && !previewUrls[photo.id]) void loadPreview(photo);
+    },
+    [
+      hasMorePhotos,
+      lightboxIndex,
+      loadMorePhotos,
+      loadPreview,
+      photos,
+      previewUrls,
+      resetZoom,
+    ]
+  );
 
   // Keyboard navigation for lightbox
   useEffect(() => {
-    if (!lightboxPhoto) return;
+    if (lightboxIndex === null) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setLightboxPhoto(null);
+      if (e.key === "Escape") closeLightbox();
+      if (e.key === "+" || e.key === "=") changeZoom(ZOOM_STEP);
+      if (e.key === "-") changeZoom(-ZOOM_STEP);
+      if (e.key === "0") resetZoom();
+      if (e.key === "ArrowLeft") {
+        navigateLightbox(-1);
+      }
+      if (e.key === "ArrowRight") {
+        navigateLightbox(1);
+      }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [lightboxPhoto]);
+  }, [changeZoom, closeLightbox, lightboxIndex, navigateLightbox, resetZoom]);
+
+  useEffect(() => {
+    if (lightboxIndex === null && !showSubmitConfirm) return;
+
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && showSubmitConfirm && !submitting) {
+        setShowSubmitConfirm(false);
+      }
+    };
+
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [lightboxIndex, showSubmitConfirm, submitting]);
 
   useEffect(() => {
     params.then((p) => setSessionId(p.sessionId));
   }, [params]);
+
+  useEffect(() => {
+    const target = loadMoreRef.current;
+    if (
+      step !== "select" ||
+      !target ||
+      !hasMorePhotos
+    ) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry.isIntersecting) return;
+        void loadMorePhotos();
+      },
+      { rootMargin: "600px 0px" }
+    );
+
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [hasMorePhotos, loadMorePhotos, step]);
 
   // Verify access code
   const handleVerify = async (e: React.FormEvent) => {
@@ -81,9 +299,10 @@ export default function SelectPage({
       setMaxSelections(data.maxSelections);
 
       // Fetch photos
-      const photosRes = await fetch(`/api/select/${sessionId}/photos`, {
-        headers: { "x-access-code": accessCode.toUpperCase() },
-      });
+      const photosRes = await fetch(
+        `/api/select/${sessionId}/photos?offset=0&limit=${PHOTO_RENDER_BATCH}`,
+        { headers: { "x-access-code": accessCode.toUpperCase() } }
+      );
 
       const photosData = await photosRes.json();
 
@@ -94,6 +313,10 @@ export default function SelectPage({
 
       setPhotos(photosData.photos);
       setSelectedIds(new Set(photosData.selectedIds));
+      setHasMorePhotos(Boolean(photosData.hasMore));
+      setTotalPhotos(Number(photosData.total) || photosData.photos.length);
+      setPreviewUrls({});
+      previewRequestsRef.current.clear();
       setStep("select");
     } catch {
       setError("Terjadi kesalahan. Coba lagi.");
@@ -117,6 +340,53 @@ export default function SelectPage({
     },
     [maxSelections]
   );
+
+  const handlePreviewPointerDown = (
+    event: React.PointerEvent<HTMLImageElement>
+  ) => {
+    if (zoomLevel <= MIN_ZOOM) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragStateRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      panX: pan.x,
+      panY: pan.y,
+    };
+    setIsDragging(true);
+  };
+
+  const handlePreviewPointerMove = (
+    event: React.PointerEvent<HTMLImageElement>
+  ) => {
+    const dragState = dragStateRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) return;
+
+    setPan({
+      x: clampPan(
+        dragState.panX + event.clientX - dragState.startX,
+        zoomLevel,
+        window.innerWidth
+      ),
+      y: clampPan(
+        dragState.panY + event.clientY - dragState.startY,
+        zoomLevel,
+        window.innerHeight
+      ),
+    });
+  };
+
+  const handlePreviewPointerEnd = (
+    event: React.PointerEvent<HTMLImageElement>
+  ) => {
+    if (dragStateRef.current?.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    dragStateRef.current = null;
+    setIsDragging(false);
+  };
 
   // Submit selections
   const handleSubmit = async () => {
@@ -147,6 +417,7 @@ export default function SelectPage({
       setError("Terjadi kesalahan. Coba lagi.");
     } finally {
       setSubmitting(false);
+      setShowSubmitConfirm(false);
     }
   };
 
@@ -239,76 +510,45 @@ export default function SelectPage({
 
           {/* Photo Grid */}
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-            {photos.map((photo) => {
+            {photos.map((photo, index) => {
               const isSelected = selectedIds.has(photo.id);
-              const isDisabled =
-                !isSelected && selectedIds.size >= maxSelections;
 
               return (
-                <div
+                <button
+                  type="button"
                   key={photo.id}
-                  className={`relative aspect-square rounded-lg overflow-hidden cursor-pointer ring-1 transition-all duration-200 select-none ${isSelected
-                    ? "ring-2 ring-white scale-[0.97]"
-                    : isDisabled
-                      ? "ring-white/[0.04] opacity-40 cursor-not-allowed"
-                      : "ring-white/[0.06] hover:ring-white/20"
+                  className={`relative aspect-square overflow-hidden rounded-lg ring-1 transition-all duration-200 select-none [content-visibility:auto] [contain-intrinsic-size:0_240px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white ${isSelected
+                    ? "ring-2 ring-white"
+                    : "ring-white/[0.06] hover:ring-white/25"
                     }`}
-                  onClick={() => !isDisabled && togglePhoto(photo.id)}
+                  onClick={() => openLightbox(index)}
                   onContextMenu={(e) => e.preventDefault()}
+                  aria-label={`Buka preview ${photo.filename}${isSelected ? ", dipilih" : ""}`}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={photo.url}
                     alt={photo.filename}
                     className="w-full h-full object-cover pointer-events-none"
-                    loading="lazy"
+                    loading={index < 8 ? "eager" : "lazy"}
+                    fetchPriority={index < 4 ? "high" : "auto"}
                     draggable={false}
                     onContextMenu={(e) => e.preventDefault()}
                   />
 
-                  {/* Selection overlay */}
+                  {/* Selection indicator */}
                   {isSelected && (
-                    <div className="absolute inset-0 bg-white/10 flex items-center justify-center">
-                      <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center shadow-lg">
-                        <svg
-                          width="16"
-                          height="16"
-                          viewBox="0 0 15 15"
-                          fill="none"
-                        >
-                          <path
-                            d="M11.4669 3.72684C11.7558 3.91574 11.8369 4.30308 11.648 4.59198L7.39799 11.092C7.29783 11.2452 7.13556 11.3467 6.95402 11.3699C6.77247 11.3931 6.58989 11.3354 6.45446 11.2124L3.70446 8.71241C3.44905 8.48022 3.43023 8.08494 3.66242 7.82953C3.89461 7.57412 4.28989 7.5553 4.5453 7.78749L6.75292 9.79441L10.6018 3.90792C10.7907 3.61902 11.178 3.53795 11.4669 3.72684Z"
-                            fill="#0a0a0a"
-                            fillRule="evenodd"
-                            clipRule="evenodd"
-                          />
-                        </svg>
-                      </div>
+                    <div className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-md bg-white text-black">
+                      <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true">
+                        <path
+                          d="M11.4669 3.72684C11.7558 3.91574 11.8369 4.30308 11.648 4.59198L7.39799 11.092C7.29783 11.2452 7.13556 11.3467 6.95402 11.3699C6.77247 11.3931 6.58989 11.3354 6.45446 11.2124L3.70446 8.71241C3.44905 8.48022 3.43023 8.08494 3.66242 7.82953C3.89461 7.57412 4.28989 7.5553 4.5453 7.78749L6.75292 9.79441L10.6018 3.90792C10.7907 3.61902 11.178 3.53795 11.4669 3.72684Z"
+                          fill="currentColor"
+                          fillRule="evenodd"
+                          clipRule="evenodd"
+                        />
+                      </svg>
                     </div>
                   )}
-
-                  {/* Expand button */}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setLightboxPhoto(photo);
-                    }}
-                    className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center sm:opacity-0 sm:hover:opacity-100 sm:focus:opacity-100 transition-opacity"
-                  >
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 15 15"
-                      fill="none"
-                    >
-                      <path
-                        d="M3.85355 2.14645C3.65829 1.95118 3.34171 1.95118 3.14645 2.14645C2.95118 2.34171 2.95118 2.65829 3.14645 2.85355L5.29289 5H3.5C3.22386 5 3 5.22386 3 5.5C3 5.77614 3.22386 6 3.5 6H6.5C6.77614 6 7 5.77614 7 5.5V2.5C7 2.22386 6.77614 2 6.5 2C6.22386 2 6 2.22386 6 2.5V4.29289L3.85355 2.14645ZM11.1464 2.14645C11.3417 1.95118 11.6583 1.95118 11.8536 2.14645C12.0488 2.34171 12.0488 2.65829 11.8536 2.85355L9.70711 5H11.5C11.7761 5 12 5.22386 12 5.5C12 5.77614 11.7761 6 11.5 6H8.5C8.22386 6 8 5.77614 8 5.5V2.5C8 2.22386 8.22386 2 8.5 2C8.77614 2 9 2.22386 9 2.5V4.29289L11.1464 2.14645ZM3.85355 12.8536C3.65829 13.0488 3.34171 13.0488 3.14645 12.8536C2.95118 12.6583 2.95118 12.3417 3.14645 12.1464L5.29289 10H3.5C3.22386 10 3 9.77614 3 9.5C3 9.22386 3.22386 9 3.5 9H6.5C6.77614 9 7 9.22386 7 9.5V12.5C7 12.7761 6.77614 13 6.5 13C6.22386 13 6 12.7761 6 12.5V10.7071L3.85355 12.8536ZM11.8536 12.8536C11.6583 13.0488 11.3417 13.0488 11.1464 12.8536L9 10.7071V12.5C9 12.7761 8.77614 13 8.5 13C8.22386 13 8 12.7761 8 12.5V9.5C8 9.22386 8.22386 9 8.5 9H11.5C11.7761 9 12 9.22386 12 9.5C12 9.77614 11.7761 10 11.5 10H9.70711L11.8536 12.1464C12.0488 12.3417 12.0488 12.6583 11.8536 12.8536Z"
-                        fill="white"
-                        fillRule="evenodd"
-                        clipRule="evenodd"
-                      />
-                    </svg>
-                  </button>
 
                   {/* Selection index number */}
                   {isSelected && (
@@ -316,10 +556,22 @@ export default function SelectPage({
                       {Array.from(selectedIds).indexOf(photo.id) + 1}
                     </div>
                   )}
-                </div>
+                </button>
               );
             })}
           </div>
+
+          {hasMorePhotos && (
+            <div
+              ref={loadMoreRef}
+              className="flex h-24 items-center justify-center text-xs text-white/35"
+              aria-live="polite"
+            >
+              {loadingMorePhotos
+                ? "Memuat foto berikutnya..."
+                : "Scroll untuk memuat foto berikutnya"}
+            </div>
+          )}
 
           {/* Floating bottom bar */}
           <div className="fixed bottom-6 sm:bottom-10 left-4 right-4 z-40 max-w-4xl mx-auto">
@@ -327,11 +579,11 @@ export default function SelectPage({
               <div className="flex items-center justify-between gap-4">
                 <p className="text-sm font-medium text-white/80">
                   {selectedIds.size === 0
-                    ? "Tap foto untuk memilih"
+                    ? "Tap foto untuk melihat preview"
                     : `${selectedIds.size} dari ${maxSelections} foto dipilih`}
                 </p>
                 <button
-                  onClick={handleSubmit}
+                  onClick={() => setShowSubmitConfirm(true)}
                   disabled={submitting || selectedIds.size === 0}
                   className="px-6 py-3 rounded-xl bg-white text-black text-sm font-bold uppercase tracking-[0.06em] hover:scale-105 active:scale-95 transition-all disabled:opacity-40 disabled:hover:scale-100 disabled:active:scale-100 shrink-0"
                 >
@@ -391,14 +643,55 @@ export default function SelectPage({
       {/* ===== LIGHTBOX ===== */}
       {lightboxPhoto && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm p-4"
-          onClick={() => setLightboxPhoto(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/95 p-3 sm:p-6"
+          onClick={closeLightbox}
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Preview ${lightboxPhoto.filename}`}
         >
-          <button
-            onClick={() => setLightboxPhoto(null)}
-            className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-colors z-10"
+          <div className="absolute left-4 top-4 rounded-full bg-white/10 px-3 py-2 text-xs font-medium text-white/80 sm:left-6 sm:top-6">
+            {(lightboxIndex ?? 0) + 1} / {totalPhotos || photos.length}
+          </div>
+          <div
+            className="absolute left-1/2 top-4 z-10 flex -translate-x-1/2 items-center gap-1 rounded-xl bg-[#171717] p-1 sm:top-6"
+            onClick={(event) => event.stopPropagation()}
           >
-            <svg width="16" height="16" viewBox="0 0 15 15" fill="none">
+            <button
+              type="button"
+              onClick={() => changeZoom(-ZOOM_STEP)}
+              disabled={zoomLevel <= MIN_ZOOM}
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-lg text-white/75 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-30"
+              aria-label="Perkecil foto"
+            >
+              −
+            </button>
+            <button
+              type="button"
+              onClick={resetZoom}
+              disabled={zoomLevel === MIN_ZOOM}
+              className="h-9 min-w-16 rounded-lg px-2 text-xs font-semibold text-white/75 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-60"
+              aria-label="Reset zoom"
+            >
+              {Math.round(zoomLevel * 100)}%
+            </button>
+            <button
+              type="button"
+              onClick={() => changeZoom(ZOOM_STEP)}
+              disabled={zoomLevel >= MAX_ZOOM}
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-lg text-white/75 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-30"
+              aria-label="Perbesar foto"
+            >
+              +
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={closeLightbox}
+            className="absolute right-4 top-4 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white sm:right-6 sm:top-6"
+            aria-label="Kembali ke galeri"
+            autoFocus
+          >
+            <svg width="16" height="16" viewBox="0 0 15 15" fill="none" aria-hidden="true">
               <path
                 d="M11.7816 4.03157C12.0062 3.80702 12.0062 3.44295 11.7816 3.2184C11.5571 2.99385 11.193 2.99385 10.9685 3.2184L7.50005 6.68682L4.03164 3.2184C3.80708 2.99385 3.44301 2.99385 3.21846 3.2184C2.99391 3.44295 2.99391 3.80702 3.21846 4.03157L6.68688 7.49999L3.21846 10.9684C2.99391 11.193 2.99391 11.557 3.21846 11.7816C3.44301 12.0061 3.80708 12.0061 4.03164 11.7816L7.50005 8.31316L10.9685 11.7816C11.193 12.0061 11.5571 12.0061 11.7816 11.7816C12.0062 11.557 12.0062 11.193 11.7816 10.9684L8.31322 7.49999L11.7816 4.03157Z"
                 fill="currentColor"
@@ -407,35 +700,154 @@ export default function SelectPage({
               />
             </svg>
           </button>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              navigateLightbox(-1);
+            }}
+            className="absolute left-3 top-1/2 z-10 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-black/60 text-white transition-colors hover:bg-white hover:text-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white sm:left-6"
+            aria-label="Foto sebelumnya"
+          >
+            <svg width="18" height="18" viewBox="0 0 15 15" fill="none" aria-hidden="true">
+              <path d="M9.854 2.146a.5.5 0 0 1 0 .708L5.207 7.5l4.647 4.646a.5.5 0 0 1-.708.708l-5-5a.5.5 0 0 1 0-.708l5-5a.5.5 0 0 1 .708 0Z" fill="currentColor" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              navigateLightbox(1);
+            }}
+            className="absolute right-3 top-1/2 z-10 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-black/60 text-white transition-colors hover:bg-white hover:text-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white sm:right-6"
+            aria-label="Foto berikutnya"
+          >
+            <svg width="18" height="18" viewBox="0 0 15 15" fill="none" aria-hidden="true">
+              <path d="M5.146 2.146a.5.5 0 0 0 0 .708L9.793 7.5l-4.647 4.646a.5.5 0 0 0 .708.708l5-5a.5.5 0 0 0 0-.708l-5-5a.5.5 0 0 0-.708 0Z" fill="currentColor" />
+            </svg>
+          </button>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={lightboxPhoto.url}
+            key={lightboxPhoto.id}
+            src={previewUrls[lightboxPhoto.id] || lightboxPhoto.url}
             alt={lightboxPhoto.filename}
-            className="max-w-full max-h-[90vh] object-contain rounded-lg select-none"
+            className={`max-h-[calc(100dvh-10rem)] max-w-full select-none rounded-lg object-contain ${
+              isDragging ? "" : "transition-transform duration-150 ease-out"
+            }`}
             onClick={(e) => e.stopPropagation()}
+            onDoubleClick={(event) => {
+              event.stopPropagation();
+              if (zoomLevel > MIN_ZOOM) resetZoom();
+              else changeZoom(1);
+            }}
+            onWheel={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              changeZoom(event.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP);
+            }}
+            onPointerDown={handlePreviewPointerDown}
+            onPointerMove={handlePreviewPointerMove}
+            onPointerUp={handlePreviewPointerEnd}
+            onPointerCancel={handlePreviewPointerEnd}
             onContextMenu={(e) => e.preventDefault()}
             draggable={false}
+            style={{
+              transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoomLevel})`,
+              cursor:
+                zoomLevel > MIN_ZOOM
+                  ? isDragging
+                    ? "grabbing"
+                    : "grab"
+                  : "zoom-in",
+              touchAction: zoomLevel > MIN_ZOOM ? "none" : "auto",
+              willChange: zoomLevel > MIN_ZOOM ? "transform" : "auto",
+            }}
           />
+          {previewLoadingId === lightboxPhoto.id && (
+            <div className="pointer-events-none absolute bottom-28 left-1/2 -translate-x-1/2 rounded-full bg-black/70 px-3 py-2 text-xs font-medium text-white/75">
+              Memuat detail foto...
+            </div>
+          )}
           {/* Select/Deselect in lightbox */}
           <div
-            className="absolute bottom-6 left-1/2 -translate-x-1/2"
+            className="absolute bottom-4 left-1/2 flex w-[calc(100%-2rem)] max-w-md -translate-x-1/2 items-center justify-between gap-3 rounded-xl bg-[#171717] p-2 sm:bottom-6"
             onClick={(e) => e.stopPropagation()}
           >
+            <div className="min-w-0 pl-2">
+              <p className="truncate text-xs font-medium text-white/80">
+                {lightboxPhoto.filename}
+              </p>
+              <p className="mt-0.5 text-[11px] text-white/40">
+                {selectedIds.size} dari {maxSelections} dipilih
+              </p>
+            </div>
             <button
+              type="button"
               onClick={() => togglePhoto(lightboxPhoto.id)}
               disabled={
                 !selectedIds.has(lightboxPhoto.id) &&
                 selectedIds.size >= maxSelections
               }
-              className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all ${selectedIds.has(lightboxPhoto.id)
+              role="checkbox"
+              aria-checked={selectedIds.has(lightboxPhoto.id)}
+              className={`flex shrink-0 items-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white ${selectedIds.has(lightboxPhoto.id)
                 ? "bg-white text-black"
-                : "bg-white/10 text-white ring-1 ring-white/20 hover:bg-white/20"
-                } disabled:opacity-30`}
+                : "bg-white/10 text-white hover:bg-white/20"
+                } disabled:cursor-not-allowed disabled:opacity-35`}
             >
-              {selectedIds.has(lightboxPhoto.id)
-                ? "✓ Terpilih"
-                : "Pilih Foto Ini"}
+              <span className={`flex h-5 w-5 items-center justify-center rounded border ${selectedIds.has(lightboxPhoto.id) ? "border-black bg-black text-white" : "border-white/50"}`}>
+                {selectedIds.has(lightboxPhoto.id) && (
+                  <svg width="13" height="13" viewBox="0 0 15 15" fill="none" aria-hidden="true">
+                    <path d="M11.467 3.727a.625.625 0 0 1 .181.865l-4.25 6.5a.625.625 0 0 1-.944.12l-2.75-2.5a.625.625 0 1 1 .841-.925l2.208 2.007 3.849-5.886a.625.625 0 0 1 .865-.181Z" fill="currentColor" />
+                  </svg>
+                )}
+              </span>
+              {selectedIds.has(lightboxPhoto.id) ? "Dipilih" : "Pilih"}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ===== SUBMIT CONFIRMATION ===== */}
+      {showSubmitConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="submit-confirm-title"
+        >
+          <button
+            type="button"
+            aria-label="Tutup konfirmasi"
+            className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            onClick={() => !submitting && setShowSubmitConfirm(false)}
+          />
+          <div className="relative z-10 w-full max-w-sm rounded-2xl bg-[#151515] p-6 ring-1 ring-white/[0.12]">
+            <h3 id="submit-confirm-title" className="text-lg font-semibold text-white">
+              Kirim pilihan foto?
+            </h3>
+            <p className="mt-2 text-sm leading-6 text-white/55">
+              Kamu memilih {selectedIds.size} foto. Setelah dikirim, pilihan tidak dapat diubah.
+            </p>
+            <div className="mt-6 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setShowSubmitConfirm(false)}
+                disabled={submitting}
+                className="flex-1 rounded-xl bg-white/[0.07] px-4 py-3 text-sm font-medium text-white/70 transition-colors hover:bg-white/[0.12] hover:text-white disabled:opacity-40"
+              >
+                Cek lagi
+              </button>
+              <button
+                type="button"
+                onClick={handleSubmit}
+                disabled={submitting}
+                className="flex-1 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-black transition-colors hover:bg-white/85 disabled:opacity-50"
+                autoFocus
+              >
+                {submitting ? "Mengirim..." : "Ya, kirim"}
+              </button>
+            </div>
           </div>
         </div>
       )}

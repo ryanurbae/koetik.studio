@@ -1,12 +1,9 @@
+"use server";
+
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import AdminShell from "../components/admin-shell";
 
-export default async function AdminLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export async function signOutAction() {
   const supabase = await createClient();
   const {
     data: { user },
@@ -16,5 +13,8 @@ export default async function AdminLayout({
     redirect("/admin/login");
   }
 
-  return <AdminShell email={user.email || "Admin"}>{children}</AdminShell>;
+  const { error } = await supabase.auth.signOut();
+  if (error) throw new Error("Gagal keluar dari admin");
+
+  redirect("/admin/login");
 }

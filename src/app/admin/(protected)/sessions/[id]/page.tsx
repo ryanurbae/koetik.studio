@@ -7,7 +7,6 @@ type RawPhoto = {
   filename: string;
   storage_path: string;
   file_size: number | null;
-  uploaded_at: string;
 };
 
 type EditedPhoto = {
@@ -15,13 +14,16 @@ type EditedPhoto = {
   filename: string;
   storage_path: string;
   file_size: number | null;
-  uploaded_at: string;
 };
 
 type PhotoSelection = {
   id: string;
   raw_photo_id: string;
-  selected_at: string;
+};
+
+type SelectedRawPhoto = {
+  id: string;
+  filename: string;
 };
 
 type Session = {
@@ -43,8 +45,12 @@ type Session = {
   gallery_cover_photo_id: string | null;
   gallery_published_at: string | null;
   show_on_portfolio: boolean;
+  drive_link?: string | null;
   created_at: string;
 };
+
+const SESSION_FIELDS =
+  "id, client_name, client_university, client_whatsapp, graduation_date, package_type, status, max_selections, notes, access_code, selection_expires_at, selection_completed_at, gallery_slug, gallery_title, gallery_description, gallery_cover_photo_id, gallery_published_at, show_on_portfolio, drive_link, created_at";
 
 export default async function SessionDetailPage({
   params,
@@ -54,57 +60,105 @@ export default async function SessionDetailPage({
   const { id } = await params;
   const supabase = await createClient();
 
-  const { data: session } = await supabase
-    .from("sessions")
-    .select("*")
-    .eq("id", id)
-    .single();
+  const [sessionResult, rawPreviewResult, editedPreviewResult, selectionsResult] =
+    await Promise.all([
+      supabase.from("sessions").select(SESSION_FIELDS).eq("id", id).single(),
+      supabase
+        .from("raw_photos")
+        .select("id, filename, storage_path, file_size", { count: "exact" })
+        .eq("session_id", id)
+        .order("sort_order", { ascending: true })
+        .order("uploaded_at", { ascending: true })
+        .range(0, 9),
+      supabase
+        .from("edited_photos")
+        .select("id, filename, storage_path, file_size", { count: "exact" })
+        .eq("session_id", id)
+        .order("sort_order", { ascending: true })
+        .order("uploaded_at", { ascending: true })
+        .range(0, 9),
+      supabase
+        .from("photo_selections")
+        .select("id, raw_photo_id")
+        .eq("session_id", id),
+    ]);
 
+  const session = sessionResult.data;
   if (!session) notFound();
 
-  const { data: rawPhotos } = await supabase
-    .from("raw_photos")
-    .select("*")
-    .eq("session_id", id)
-    .order("sort_order", { ascending: true })
-    .order("uploaded_at", { ascending: true });
+  const rawPreviewPhotos = (rawPreviewResult.data || []) as RawPhoto[];
+  const editedPreviewPhotos = (editedPreviewResult.data || []) as EditedPhoto[];
+  const selections = (selectionsResult.data || []) as PhotoSelection[];
+  const selectedPhotoIds = selections.map((selection) => selection.raw_photo_id);
 
-  const { data: editedPhotos } = await supabase
-    .from("edited_photos")
-    .select("*")
-    .eq("session_id", id)
-    .order("sort_order", { ascending: true })
-    .order("uploaded_at", { ascending: true });
+  let selectedRawPhotos: SelectedRawPhoto[] = [];
+  if (selectedPhotoIds.length > 0) {
+    const { data } = await supabase
+      .from("raw_photos")
+      .select("id, filename")
+      .eq("session_id", id)
+      .in("id", selectedPhotoIds)
+      .order("sort_order", { ascending: true })
+      .order("uploaded_at", { ascending: true });
+    selectedRawPhotos = (data || []) as SelectedRawPhoto[];
+  }
 
-  const { data: selections } = await supabase
-    .from("photo_selections")
-    .select("*")
-    .eq("session_id", id);
-
-  // Generate signed URLs for raw photos (private bucket)
+  const rawStorage = supabase.storage.from("raw-photos");
   const rawPhotosWithUrls = await Promise.all(
-    (rawPhotos || []).map(async (photo: RawPhoto) => {
-      const { data } = await supabase.storage
-        .from("raw-photos")
-        .createSignedUrl(photo.storage_path, 3600);
-      return { ...photo, url: data?.signedUrl || "" };
+    rawPreviewPhotos.map(async (photo) => {
+      const { data: thumbnail } = await rawStorage.createSignedUrl(
+        photo.storage_path,
+        3600,
+        {
+          transform: {
+            width: 420,
+            height: 420,
+            resize: "cover",
+            quality: 70,
+          },
+        }
+      );
+
+      if (thumbnail?.signedUrl) {
+        return { ...photo, url: thumbnail.signedUrl };
+      }
+
+      const { data: fallback } = await rawStorage.createSignedUrl(
+        photo.storage_path,
+        3600
+      );
+      return { ...photo, url: fallback?.signedUrl || "" };
     })
   );
 
-  // Get public URLs for edited photos
-  const editedPhotosWithUrls = (editedPhotos || []).map((photo: EditedPhoto) => {
-    const { data } = supabase.storage
-      .from("edited-photos")
-      .getPublicUrl(photo.storage_path);
-    return { ...photo, url: data.publicUrl };
+  const editedStorage = supabase.storage.from("edited-photos");
+  const editedPhotosWithUrls = editedPreviewPhotos.map((photo) => {
+    const { data: thumbnail } = editedStorage.getPublicUrl(photo.storage_path, {
+      transform: {
+        width: 420,
+        height: 420,
+        resize: "cover",
+        quality: 70,
+      },
+    });
+    const { data: original } = editedStorage.getPublicUrl(photo.storage_path);
+
+    return {
+      ...photo,
+      url: thumbnail.publicUrl,
+      originalUrl: original.publicUrl,
+    };
   });
 
   return (
     <SessionDetail
       session={session as Session}
       rawPhotos={rawPhotosWithUrls}
+      rawPhotoCount={rawPreviewResult.count || 0}
       editedPhotos={editedPhotosWithUrls}
-      selections={(selections || []) as PhotoSelection[]}
+      editedPhotoCount={editedPreviewResult.count || 0}
+      selections={selections}
+      selectedRawPhotos={selectedRawPhotos}
     />
   );
 }

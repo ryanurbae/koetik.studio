@@ -2,8 +2,8 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import { createClient } from "@/lib/supabase/client";
-import { motion, AnimatePresence } from "framer-motion";
 import {
   uploadRawPhotos,
   uploadEditedPhotos,
@@ -17,7 +17,20 @@ import {
   uploadGalleryThumbnail,
   updateDriveLink,
 } from "../../actions";
-import { CropModal } from "@/components/crop-modal";
+
+const CropModal = dynamic(
+  () => import("@/components/crop-modal").then((module) => module.CropModal),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+        <div className="rounded-xl bg-[#111] px-5 py-3 text-sm text-white/70 ring-1 ring-white/[0.1]">
+          Menyiapkan editor thumbnail...
+        </div>
+      </div>
+    ),
+  }
+);
 
 type Photo = {
   id: string;
@@ -25,11 +38,17 @@ type Photo = {
   storage_path: string;
   file_size: number | null;
   url: string;
+  originalUrl?: string;
 };
 
 type Selection = {
   id: string;
   raw_photo_id: string;
+};
+
+type SelectedRawPhoto = {
+  id: string;
+  filename: string;
 };
 
 type Session = {
@@ -73,16 +92,24 @@ const statusLabels: Record<string, string> = {
   delivered: "Delivered",
 };
 
+const EDITED_GALLERY_PAGE_SIZE = 40;
+
 export default function SessionDetail({
   session,
   rawPhotos,
+  rawPhotoCount,
   editedPhotos,
+  editedPhotoCount,
   selections,
+  selectedRawPhotos,
 }: {
   session: Session;
   rawPhotos: Photo[];
+  rawPhotoCount: number;
   editedPhotos: Photo[];
+  editedPhotoCount: number;
   selections: Selection[];
+  selectedRawPhotos: SelectedRawPhoto[];
 }) {
   const router = useRouter();
   const rawInputRef = useRef<HTMLInputElement>(null);
@@ -114,6 +141,16 @@ export default function SessionDetail({
   const [actionLoading, setActionLoading] = useState(false);
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
   const [photoToDelete, setPhotoToDelete] = useState<{ id: string; type: "raw" | "edited" } | null>(null);
+  const [showRawGallery, setShowRawGallery] = useState(false);
+  const [rawGalleryPhotos, setRawGalleryPhotos] = useState<Photo[]>([]);
+  const [rawGalleryLoading, setRawGalleryLoading] = useState(false);
+  const [rawGalleryHasMore, setRawGalleryHasMore] = useState(false);
+  const [rawGalleryError, setRawGalleryError] = useState("");
+  const [showEditedGallery, setShowEditedGallery] = useState(false);
+  const [editedGalleryPhotos, setEditedGalleryPhotos] = useState<Photo[]>([]);
+  const [editedGalleryLoading, setEditedGalleryLoading] = useState(false);
+  const [editedGalleryHasMore, setEditedGalleryHasMore] = useState(false);
+  const [editedGalleryError, setEditedGalleryError] = useState("");
   const [cropImageUrl, setCropImageUrl] = useState<string | null>(null);
   const [thumbnailSaved, setThumbnailSaved] = useState(false);
 
@@ -130,6 +167,72 @@ export default function SessionDetail({
       console.error(err);
       alert("Gagal upload thumbnail. Pastikan bucket 'thumbnails' sudah dibuat di Supabase.");
     }
+  };
+
+  const loadRawGalleryPage = async (offset: number, replace = false) => {
+    if (rawGalleryLoading) return;
+    setRawGalleryLoading(true);
+    setRawGalleryError("");
+
+    try {
+      const response = await fetch(
+        `/api/admin/sessions/${session.id}/raw-photos?offset=${offset}&limit=40`
+      );
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Gagal memuat foto raw");
+
+      setRawGalleryPhotos((current) =>
+        replace ? data.photos : [...current, ...data.photos]
+      );
+      setRawGalleryHasMore(Boolean(data.hasMore));
+    } catch (error) {
+      setRawGalleryError(
+        error instanceof Error ? error.message : "Gagal memuat foto raw"
+      );
+    } finally {
+      setRawGalleryLoading(false);
+    }
+  };
+
+  const handleOpenRawGallery = () => {
+    setRawGalleryPhotos([]);
+    setRawGalleryHasMore(false);
+    setShowRawGallery(true);
+    void loadRawGalleryPage(0, true);
+  };
+
+  const loadEditedGalleryPage = async (offset: number, replace = false) => {
+    if (editedGalleryLoading) return;
+    setEditedGalleryLoading(true);
+    setEditedGalleryError("");
+
+    try {
+      const response = await fetch(
+        `/api/admin/sessions/${session.id}/edited-photos?offset=${offset}&limit=${EDITED_GALLERY_PAGE_SIZE}`
+      );
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "Gagal memuat foto edited");
+      }
+
+      setEditedGalleryPhotos((current) =>
+        replace ? data.photos : [...current, ...data.photos]
+      );
+      setEditedGalleryHasMore(Boolean(data.hasMore));
+    } catch (error) {
+      setEditedGalleryError(
+        error instanceof Error ? error.message : "Gagal memuat foto edited"
+      );
+    } finally {
+      setEditedGalleryLoading(false);
+    }
+  };
+
+  const handleOpenEditedGallery = () => {
+    setEditedGalleryPhotos([]);
+    setEditedGalleryHasMore(false);
+    setShowEditedGallery(true);
+    void loadEditedGalleryPage(0, true);
   };
 
   // Real-time: auto-reload when client submits selections
@@ -155,6 +258,26 @@ export default function SessionDetail({
       supabase.removeChannel(channel);
     };
   }, [session.id, router]);
+
+  useEffect(() => {
+    if (!showRawGallery && !showEditedGallery) return;
+
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setShowRawGallery(false);
+        setShowEditedGallery(false);
+      }
+    };
+
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [showRawGallery, showEditedGallery]);
 
   const selectedPhotoIds = new Set(selections.map((s) => s.raw_photo_id));
 
@@ -391,14 +514,11 @@ Let us know if you need anything else!`;
       )}
 
       {/* Floating custom toast */}
-      <AnimatePresence>
-        {toastMessage && (
-          <motion.div
-            initial={{ opacity: 0, y: 20, x: "-50%", scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, x: "-50%", scale: 1 }}
-            exit={{ opacity: 0, y: 10, x: "-50%", scale: 0.95 }}
-            transition={{ type: "spring", stiffness: 400, damping: 25 }}
-            className="fixed bottom-6 left-1/2 z-50 w-full max-w-sm px-5 py-4 rounded-2xl bg-[#111] ring-1 ring-white/[0.12] flex items-center justify-center gap-3 shadow-[0_0_40px_-10px_rgba(16,185,129,0.3)] shadow-black/60"
+      {toastMessage && (
+          <div
+            className="fixed bottom-6 left-1/2 z-50 flex w-full max-w-sm -translate-x-1/2 items-center justify-center gap-3 rounded-2xl bg-[#111] px-5 py-4 shadow-black/60 ring-1 ring-white/[0.12] motion-safe:animate-fade-in"
+            role="status"
+            aria-live="polite"
           >
             {toastMessage.type === "success" && (
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" className="text-emerald-400" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -415,9 +535,8 @@ Let us know if you need anything else!`;
             <span className={`text-sm font-medium ${toastMessage.type === "success" ? "text-emerald-400" : "text-red-400"}`}>
               {toastMessage.text}
             </span>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          </div>
+      )}
 
       {/* ========== RAW PHOTOS SECTION ========== */}
       <section 
@@ -435,7 +554,7 @@ Let us know if you need anything else!`;
       >
         <div className="flex items-center justify-between mb-4">
           <p className="text-[10px] uppercase tracking-[0.2em] text-white/30 font-medium">
-            [raw photos] {rawPhotos.length} files
+            [raw photos] {rawPhotoCount} files
           </p>
           <div>
             <input
@@ -456,45 +575,37 @@ Let us know if you need anything else!`;
           </div>
         </div>
 
-        {rawPhotos.length > 0 ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
-            {rawPhotos.map((photo) => {
-              const isSelected = selectedPhotoIds.has(photo.id);
-              return (
+        {rawPhotoCount > 0 ? (
+          <div className="relative h-24 overflow-hidden rounded-xl bg-white/[0.02] ring-1 ring-white/[0.06]">
+            <div className="flex h-full gap-2 p-2 pr-32" aria-hidden="true">
+              {rawPhotos.slice(0, 10).map((photo) => (
                 <div
                   key={photo.id}
-                  className={`group relative aspect-square rounded-lg overflow-hidden ring-1 ${isSelected ? "ring-emerald-500/50 ring-2" : "ring-white/[0.06]"}`}
+                  className={`relative h-20 w-20 shrink-0 overflow-hidden rounded-lg ring-1 sm:w-24 ${
+                    selectedPhotoIds.has(photo.id)
+                      ? "ring-2 ring-emerald-500/60"
+                      : "ring-white/[0.06]"
+                  }`}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={photo.url}
-                    alt={photo.filename}
-                    className="w-full h-full object-cover"
+                    alt=""
+                    className="h-full w-full object-cover"
                     loading="lazy"
                   />
-                  {isSelected && (
-                    <div className="absolute top-2 right-2 w-6 h-6 rounded-full bg-emerald-500 flex items-center justify-center">
-                      <svg width="12" height="12" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M11.4669 3.72684C11.7558 3.91574 11.8369 4.30308 11.648 4.59198L7.39799 11.092C7.29783 11.2452 7.13556 11.3467 6.95402 11.3699C6.77247 11.3931 6.58989 11.3354 6.45446 11.2124L3.70446 8.71241C3.44905 8.48022 3.43023 8.08494 3.66242 7.82953C3.89461 7.57412 4.28989 7.5553 4.5453 7.78749L6.75292 9.79441L10.6018 3.90792C10.7907 3.61902 11.178 3.53795 11.4669 3.72684Z" fill="white" fillRule="evenodd" clipRule="evenodd" />
-                      </svg>
-                    </div>
-                  )}
-                  {/* Delete button on hover */}
-                  <div className={`absolute inset-0 bg-black/50 transition-opacity flex items-center justify-center ${deletingIds.has(photo.id) ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
-                    <button
-                      onClick={() => setPhotoToDelete({ id: photo.id, type: "raw" })}
-                      disabled={deletingIds.has(photo.id)}
-                      className="px-3 py-1.5 rounded-full bg-red-500/80 text-[11px] font-medium text-white disabled:opacity-50"
-                    >
-                      {deletingIds.has(photo.id) ? "Deleting..." : "Delete"}
-                    </button>
-                  </div>
-                  <p className="absolute bottom-0 left-0 right-0 p-1.5 bg-black/60 text-[9px] text-white/50 truncate">
-                    {photo.filename}
-                  </p>
                 </div>
-              );
-            })}
+              ))}
+            </div>
+            <div className="absolute inset-y-0 right-0 flex w-36 items-center justify-center bg-gradient-to-l from-[#0a0a0a] via-[#0a0a0a]/95 to-transparent pl-5 pr-2">
+              <button
+                type="button"
+                onClick={handleOpenRawGallery}
+                className="rounded-full bg-white px-4 py-2.5 text-[11px] font-semibold text-black transition-colors hover:bg-white/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+              >
+                Lihat semua ({rawPhotoCount})
+              </button>
+            </div>
           </div>
         ) : (
           <div className="py-12 border border-dashed border-white/[0.08] rounded-xl bg-white/[0.01] text-center">
@@ -514,8 +625,7 @@ Let us know if you need anything else!`;
               </p>
               <button
                 onClick={() => {
-                  const filenames = rawPhotos
-                    .filter((p) => selectedPhotoIds.has(p.id))
+                  const filenames = selectedRawPhotos
                     .map((p) => p.filename)
                     .join("\n");
                   copyToClipboard(filenames);
@@ -527,8 +637,7 @@ Let us know if you need anything else!`;
             </div>
             <textarea
               readOnly
-              value={rawPhotos
-                .filter((p) => selectedPhotoIds.has(p.id))
+              value={selectedRawPhotos
                 .map((p) => p.filename)
                 .join("\n")}
               rows={Math.min(10, selectedPhotoIds.size)}
@@ -539,7 +648,7 @@ Let us know if you need anything else!`;
       </section>
 
       {/* ========== SELECTION LINK SECTION ========== */}
-      {rawPhotos.length > 0 && (
+      {rawPhotoCount > 0 && (
         <section className="mb-10">
           <p className="text-[10px] uppercase tracking-[0.2em] text-white/30 font-medium mb-4">
             [selection link]
@@ -731,7 +840,7 @@ Let us know if you need anything else!`;
         >
           <div className="flex items-center justify-between mb-4">
             <p className="text-[10px] uppercase tracking-[0.2em] text-white/30 font-medium">
-              [edited photos] {editedPhotos.length} files
+              [edited photos] {editedPhotoCount} files
             </p>
             {session.status !== "delivered" && (
               <div>
@@ -754,45 +863,45 @@ Let us know if you need anything else!`;
             )}
           </div>
 
-          {editedPhotos.length > 0 ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
-              {editedPhotos.map((photo) => (
-                <div
-                  key={photo.id}
-                  className="group relative aspect-square rounded-lg overflow-hidden ring-1 ring-white/[0.06]"
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={photo.url}
-                    alt={photo.filename}
-                    className="w-full h-full object-cover"
-                    loading="lazy"
-                  />
-                  {session.gallery_cover_photo_id === photo.id && (
-                    <div className="absolute top-2 left-2 px-2 py-1 bg-emerald-500 rounded text-[9px] font-bold text-white uppercase tracking-wider">
-                      Cover
-                    </div>
-                  )}
-                  <div className={`absolute inset-0 bg-black/50 transition-opacity flex flex-col items-center justify-center gap-2 ${deletingIds.has(photo.id) ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
-                    <button
-                      onClick={() => setCropImageUrl(photo.url)}
-                      className="px-3 py-1.5 rounded-full bg-white/20 hover:bg-white/30 text-[11px] font-medium text-white transition-colors"
-                    >
-                      Set Thumbnail
-                    </button>
-                    <button
-                      onClick={() => setPhotoToDelete({ id: photo.id, type: "edited" })}
-                      disabled={deletingIds.has(photo.id)}
-                      className="px-3 py-1.5 rounded-full bg-red-500/80 text-[11px] font-medium text-white disabled:opacity-50"
-                    >
-                      {deletingIds.has(photo.id) ? "Deleting..." : "Delete"}
-                    </button>
+          {editedPhotoCount > 0 ? (
+            <div className="relative h-24 overflow-hidden rounded-xl bg-white/[0.02] ring-1 ring-white/[0.06]">
+              <div className="flex h-full gap-2 p-2 pr-32" aria-hidden="true">
+                {editedPhotos.slice(0, 10).map((photo) => (
+                  <div
+                    key={photo.id}
+                    className={`relative h-20 w-20 shrink-0 overflow-hidden rounded-lg ring-1 sm:w-24 ${
+                      session.gallery_cover_photo_id === photo.id
+                        ? "ring-2 ring-emerald-500/60"
+                        : "ring-white/[0.06]"
+                    }`}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={photo.url}
+                      alt=""
+                      className="h-full w-full object-cover"
+                      loading="lazy"
+                      onError={(event) => {
+                        if (
+                          photo.originalUrl &&
+                          event.currentTarget.src !== photo.originalUrl
+                        ) {
+                          event.currentTarget.src = photo.originalUrl;
+                        }
+                      }}
+                    />
                   </div>
-                  <p className="absolute bottom-0 left-0 right-0 p-1.5 bg-black/60 text-[9px] text-white/50 truncate">
-                    {photo.filename}
-                  </p>
-                </div>
-              ))}
+                ))}
+              </div>
+              <div className="absolute inset-y-0 right-0 flex w-36 items-center justify-center bg-gradient-to-l from-[#0a0a0a] via-[#0a0a0a]/95 to-transparent pl-5 pr-2">
+                <button
+                  type="button"
+                  onClick={handleOpenEditedGallery}
+                  className="rounded-full bg-white px-4 py-2.5 text-[11px] font-semibold text-black transition-colors hover:bg-white/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+                >
+                  Lihat semua ({editedPhotoCount})
+                </button>
+              </div>
             </div>
           ) : (
             <div className="py-12 border border-dashed border-white/[0.08] rounded-xl bg-white/[0.01] text-center">
@@ -803,7 +912,7 @@ Let us know if you need anything else!`;
       )}
 
       {/* ========== GALLERY PUBLISH SECTION ========== */}
-      {editedPhotos.length > 0 && session.status !== "delivered" && (
+      {editedPhotoCount > 0 && session.status !== "delivered" && (
         <section className="mb-10">
           <p className="text-[10px] uppercase tracking-[0.2em] text-white/30 font-medium mb-4">
             [publish gallery]
@@ -1029,6 +1138,268 @@ Let us know if you need anything else!`;
         </div>
       </section>
 
+      {/* Raw photo gallery */}
+      {showRawGallery && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="raw-gallery-title"
+        >
+          <button
+            type="button"
+            aria-label="Tutup galeri foto raw"
+            className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            onClick={() => setShowRawGallery(false)}
+          />
+          <div className="relative z-10 flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-[#111] ring-1 ring-white/[0.12]">
+            <div className="flex shrink-0 items-center justify-between border-b border-white/[0.08] px-4 py-3 sm:px-5">
+              <div>
+                <h3 id="raw-gallery-title" className="text-sm font-semibold text-white">
+                  Semua Foto Raw
+                </h3>
+                <p className="mt-0.5 text-xs text-white/40">
+                  {rawPhotoCount} file · {selectedPhotoIds.size} terpilih
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowRawGallery(false)}
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-white/[0.06] text-white/70 transition-colors hover:bg-white/[0.12] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
+                aria-label="Tutup"
+                autoFocus
+              >
+                <svg width="16" height="16" viewBox="0 0 15 15" fill="none" aria-hidden="true">
+                  <path d="M3.135 3.135a.5.5 0 0 1 .707 0L7.5 6.793l3.658-3.658a.5.5 0 1 1 .707.707L8.207 7.5l3.658 3.658a.5.5 0 0 1-.707.707L7.5 8.207l-3.658 3.658a.5.5 0 0 1-.707-.707L6.793 7.5 3.135 3.842a.5.5 0 0 1 0-.707Z" fill="currentColor" />
+                </svg>
+              </button>
+            </div>
+            <div className="overflow-y-auto p-3 sm:p-5">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+                {rawGalleryPhotos.map((photo) => {
+                  const isSelected = selectedPhotoIds.has(photo.id);
+                  return (
+                    <div
+                      key={photo.id}
+                      className={`group relative aspect-square overflow-hidden rounded-lg ring-1 [content-visibility:auto] [contain-intrinsic-size:0_220px] ${
+                        isSelected
+                          ? "ring-2 ring-emerald-500/60"
+                          : "ring-white/[0.08]"
+                      }`}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={photo.url}
+                        alt={photo.filename}
+                        className="h-full w-full object-cover"
+                        loading="lazy"
+                      />
+                      {isSelected && (
+                        <div className="absolute left-2 top-2 flex h-6 items-center gap-1 rounded-full bg-emerald-500 px-2 text-[10px] font-semibold text-white">
+                          <svg width="12" height="12" viewBox="0 0 15 15" fill="none" aria-hidden="true">
+                            <path d="M11.467 3.727a.625.625 0 0 1 .181.865l-4.25 6.5a.625.625 0 0 1-.944.12l-2.75-2.5a.625.625 0 1 1 .841-.925l2.208 2.007 3.849-5.886a.625.625 0 0 1 .865-.181Z" fill="currentColor" />
+                          </svg>
+                          Dipilih
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setPhotoToDelete({ id: photo.id, type: "raw" })}
+                        disabled={deletingIds.has(photo.id)}
+                        className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-black/70 text-white/70 transition-colors hover:bg-red-500 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 disabled:opacity-50"
+                        aria-label={`Hapus ${photo.filename}`}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 15 15" fill="none" aria-hidden="true">
+                          <path d="M5 2.5A1.5 1.5 0 0 1 6.5 1h2A1.5 1.5 0 0 1 10 2.5V3h2.5a.5.5 0 0 1 0 1h-.55l-.73 8.03A2 2 0 0 1 9.23 14H5.77a2 2 0 0 1-1.99-1.97L3.05 4H2.5a.5.5 0 0 1 0-1H5v-.5Zm1 0V3h3v-.5a.5.5 0 0 0-.5-.5h-2a.5.5 0 0 0-.5.5ZM4.05 4l.73 7.94a1 1 0 0 0 .99 1.06h3.46a1 1 0 0 0 .99-1.06L10.95 4h-6.9Z" fill="currentColor" />
+                        </svg>
+                      </button>
+                      <p className="absolute inset-x-0 bottom-0 truncate bg-black/70 px-2 py-1.5 text-[10px] text-white/70">
+                        {photo.filename}
+                      </p>
+                    </div>
+                  );
+                })}
+                {rawGalleryLoading && rawGalleryPhotos.length === 0 &&
+                  Array.from({ length: 10 }, (_, index) => (
+                    <div
+                      key={index}
+                      className="aspect-square rounded-lg bg-white/[0.06]"
+                      aria-hidden="true"
+                    />
+                  ))}
+              </div>
+              {rawGalleryError && (
+                <p className="py-6 text-center text-sm text-red-400">
+                  {rawGalleryError}
+                </p>
+              )}
+              {rawGalleryHasMore && (
+                <div className="flex justify-center py-6">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void loadRawGalleryPage(rawGalleryPhotos.length)
+                    }
+                    disabled={rawGalleryLoading}
+                    className="rounded-full bg-white/[0.08] px-5 py-2.5 text-xs font-semibold text-white/75 transition-colors hover:bg-white/[0.14] hover:text-white disabled:opacity-45"
+                  >
+                    {rawGalleryLoading
+                      ? "Memuat..."
+                      : "Muat 40 foto berikutnya"}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edited photo gallery */}
+      {showEditedGallery && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="edited-gallery-title"
+        >
+          <button
+            type="button"
+            aria-label="Tutup galeri foto edited"
+            className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            onClick={() => setShowEditedGallery(false)}
+          />
+          <div className="relative z-10 flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-[#111] ring-1 ring-white/[0.12]">
+            <div className="flex shrink-0 items-center justify-between border-b border-white/[0.08] px-4 py-3 sm:px-5">
+              <div>
+                <h3
+                  id="edited-gallery-title"
+                  className="text-sm font-semibold text-white"
+                >
+                  Semua Foto Edited
+                </h3>
+                <p className="mt-0.5 text-xs text-white/40">
+                  {editedPhotoCount} file
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowEditedGallery(false)}
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-white/[0.06] text-white/70 transition-colors hover:bg-white/[0.12] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
+                aria-label="Tutup"
+                autoFocus
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 15 15"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M3.135 3.135a.5.5 0 0 1 .707 0L7.5 6.793l3.658-3.658a.5.5 0 1 1 .707.707L8.207 7.5l3.658 3.658a.5.5 0 0 1-.707.707L7.5 8.207l-3.658 3.658a.5.5 0 0 1-.707-.707L6.793 7.5 3.135 3.842a.5.5 0 0 1 0-.707Z"
+                    fill="currentColor"
+                  />
+                </svg>
+              </button>
+            </div>
+            <div className="overflow-y-auto p-3 sm:p-5">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+                {editedGalleryPhotos.map((photo) => (
+                  <div
+                    key={photo.id}
+                    className={`group relative aspect-square overflow-hidden rounded-lg ring-1 [content-visibility:auto] [contain-intrinsic-size:0_220px] ${
+                      session.gallery_cover_photo_id === photo.id
+                        ? "ring-2 ring-emerald-500/60"
+                        : "ring-white/[0.08]"
+                    }`}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={photo.url}
+                      alt={photo.filename}
+                      className="h-full w-full object-cover"
+                      loading="lazy"
+                      onError={(event) => {
+                        if (
+                          photo.originalUrl &&
+                          event.currentTarget.src !== photo.originalUrl
+                        ) {
+                          event.currentTarget.src = photo.originalUrl;
+                        }
+                      }}
+                    />
+                    {session.gallery_cover_photo_id === photo.id && (
+                      <div className="absolute left-2 top-2 rounded bg-emerald-500 px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-white">
+                        Cover
+                      </div>
+                    )}
+                    <div
+                      className={`absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/50 transition-opacity ${
+                        deletingIds.has(photo.id)
+                          ? "opacity-100"
+                          : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setCropImageUrl(photo.originalUrl || photo.url)
+                        }
+                        className="rounded-full bg-white/20 px-3 py-1.5 text-[11px] font-medium text-white transition-colors hover:bg-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+                      >
+                        Set Thumbnail
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPhotoToDelete({ id: photo.id, type: "edited" })
+                        }
+                        disabled={deletingIds.has(photo.id)}
+                        className="rounded-full bg-red-500/80 px-3 py-1.5 text-[11px] font-medium text-white transition-colors hover:bg-red-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 disabled:opacity-50"
+                      >
+                        {deletingIds.has(photo.id) ? "Deleting..." : "Delete"}
+                      </button>
+                    </div>
+                    <p className="absolute inset-x-0 bottom-0 truncate bg-black/70 px-2 py-1.5 text-[10px] text-white/70">
+                      {photo.filename}
+                    </p>
+                  </div>
+                ))}
+                {editedGalleryLoading && editedGalleryPhotos.length === 0 &&
+                  Array.from({ length: 10 }, (_, index) => (
+                    <div
+                      key={index}
+                      className="aspect-square rounded-lg bg-white/[0.06]"
+                      aria-hidden="true"
+                    />
+                  ))}
+              </div>
+              {editedGalleryError && (
+                <p className="py-6 text-center text-sm text-red-400">
+                  {editedGalleryError}
+                </p>
+              )}
+              {editedGalleryHasMore && (
+                <div className="flex justify-center py-6">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void loadEditedGalleryPage(editedGalleryPhotos.length)
+                    }
+                    disabled={editedGalleryLoading}
+                    className="rounded-full bg-white/[0.08] px-5 py-2.5 text-xs font-semibold text-white/75 transition-colors hover:bg-white/[0.14] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 disabled:opacity-45"
+                  >
+                    {editedGalleryLoading
+                      ? "Memuat..."
+                      : "Muat 40 foto berikutnya"}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Delete confirmation */}
       {showDeleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -1094,7 +1465,23 @@ Let us know if you need anything else!`;
                     
                     const deleteFn = type === "raw" ? deleteRawPhoto : deleteEditedPhoto;
                     deleteFn(id, session.id)
-                      .then(() => router.refresh())
+                      .then(() => {
+                        if (type === "raw") {
+                          setRawGalleryPhotos((current) =>
+                            current.filter((photo) => photo.id !== id)
+                          );
+                        } else {
+                          setEditedGalleryPhotos((current) =>
+                            current.filter((photo) => photo.id !== id)
+                          );
+                        }
+                        setDeletingIds((current) => {
+                          const next = new Set(current);
+                          next.delete(id);
+                          return next;
+                        });
+                        router.refresh();
+                      })
                       .catch((err) => {
                         console.error(err);
                         setDeletingIds(prev => {
@@ -1115,12 +1502,14 @@ Let us know if you need anything else!`;
       )}
 
       {/* Crop Modal */}
-      <CropModal
-        open={!!cropImageUrl}
-        onClose={() => setCropImageUrl(null)}
-        imageUrl={cropImageUrl || ""}
-        onCropSave={handleCropSave}
-      />
+      {cropImageUrl && (
+        <CropModal
+          open
+          onClose={() => setCropImageUrl(null)}
+          imageUrl={cropImageUrl}
+          onCropSave={handleCropSave}
+        />
+      )}
 
       {/* Toast: thumbnail saved */}
       {thumbnailSaved && (

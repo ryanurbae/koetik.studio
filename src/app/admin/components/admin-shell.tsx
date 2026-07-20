@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { useFormStatus } from "react-dom";
 import Link from "next/link";
 import Image from "next/image";
-import { usePathname, useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
-import type { User } from "@supabase/supabase-js";
+import { usePathname } from "next/navigation";
+import { signOutAction } from "../actions";
 
 const navItems = [
   { label: "Overview", href: "/admin" },
@@ -41,24 +41,30 @@ function IconClose() {
   );
 }
 
+function SignOutButton() {
+  const { pending } = useFormStatus();
+
+  return (
+    <button
+      type="submit"
+      disabled={pending}
+      className="w-full rounded-xl px-4 py-2.5 text-left text-sm font-medium text-white/30 transition-colors hover:bg-white/[0.03] hover:text-white/60 disabled:cursor-wait disabled:opacity-50"
+    >
+      {pending ? "Signing out..." : "Sign out"}
+    </button>
+  );
+}
+
 export default function AdminShell({
-  user,
+  email,
   children,
 }: {
-  user: User;
+  email: string;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const router = useRouter();
   // Default tertutup di semua ukuran layar
   const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  const handleLogout = async () => {
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    router.push("/admin/login");
-    router.refresh();
-  };
 
   const getInitials = (email: string) => {
     return email.slice(0, 2).toUpperCase();
@@ -128,23 +134,20 @@ export default function AdminShell({
           <div className="px-4 py-3 rounded-xl bg-white/[0.03] ring-1 ring-white/[0.04]">
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-[11px] font-semibold text-white/60">
-                {getInitials(user.email || "AD")}
+                {getInitials(email || "AD")}
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-medium text-white/70 truncate">
-                  {user.email}
+                  {email}
                 </p>
               </div>
             </div>
           </div>
 
           {/* Logout */}
-          <button
-            onClick={handleLogout}
-            className="px-4 py-2.5 rounded-xl text-sm font-medium text-white/30 hover:text-white/60 hover:bg-white/[0.03] transition-all duration-300 text-left"
-          >
-            Sign out
-          </button>
+          <form action={signOutAction}>
+            <SignOutButton />
+          </form>
         </div>
       </aside>
 
